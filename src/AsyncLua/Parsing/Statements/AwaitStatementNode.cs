@@ -12,7 +12,7 @@ namespace AsyncLua.Parsing.Statements
     /// <remarks>
     /// <para>
     /// The <c>await</c> statement suspends execution of the current Lua function
-    /// until the <see cref="AsyncLua.Values.LuaTask"/> returned by <see cref="Expression"/>
+    /// until the <see cref="AsyncLua.Values.LuaTask"/> returned by the expression
     /// completes. This is only valid inside an <c>async</c> function context.
     /// </para>
     /// <para>
@@ -22,8 +22,8 @@ namespace AsyncLua.Parsing.Statements
     public class AwaitStatementNode : StatementNode
     {
         /// <summary>
-        /// Gets or sets the expression that must evaluate to a <see cref="AsyncLua.Values.LuaTask"/>.
+        /// Gets or sets the <c>await</c> expression.
         /// </summary>
-        public ExpressionNode Expression { get; set; } = null!;
+        public AwaitExpressionNode AwaitExpression { get; set; } = null!;
     }
 }

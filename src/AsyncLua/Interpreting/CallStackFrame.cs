@@ -46,7 +46,7 @@ namespace AsyncLua.Interpreting
 		/// Open upvalues in this frame, indexed by register slot.
 		/// Used to find existing upvalues when creating nested closures.
 		/// </summary>
-		public Upvalue[]? OpenUpvalues;
+		public Upvalue?[]? OpenUpvalues;
 
 		public CallStackFrame(FunctionPrototype function, int returnPC, int resultBase = 0, int resultCount = 0)
 		{

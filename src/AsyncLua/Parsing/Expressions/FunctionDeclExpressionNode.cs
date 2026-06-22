@@ -9,7 +9,7 @@ namespace AsyncLua.Parsing.Expressions
     /// Represents a function expression in Lua (anonymous function):
     /// <c>function(params) body end</c>.
     /// </summary>
-    public class FunctionExpressionNode : ExpressionNode
+    public class FunctionDeclExpressionNode : ExpressionNode
     {
         /// <summary>
         /// Gets or sets the parameter list. Each string is a parameter name.
