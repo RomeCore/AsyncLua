@@ -1,1 +1,4 @@
-<Solution />
+<Solution>
+  <Project Path="src/AsyncLua/AsyncLua.csproj" />
+  <Project Path="tests/AsyncLua.Tests/AsyncLua.Tests.csproj" />
+</Solution>
