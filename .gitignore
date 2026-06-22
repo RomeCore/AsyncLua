@@ -1,0 +1,41 @@
+.llmassist/
+.integrai/
+project-references/
+
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+[Bb]in/
+[Oo]bj/
+
+## NuGet
+**/[Pp]ackages/*
+!**/[Pp]ackages/*.targets
+*.nupkg
+
+*.cache
+*.lock.json
+
+## Test Results
+[Tt]est[Rr]esults/
+**/[Tt]est[Rr]esult*.trx
+*.coverage
+
+## Rider / JetBrains
+.idea/
+*.sln.iml
+
+## VS Code (мало ли)
+.vscode/
+
+## Mac OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+## Windows thumbs.db
+Thumbs.db
+ehthumbs.db
