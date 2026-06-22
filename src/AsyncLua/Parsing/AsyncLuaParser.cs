@@ -10,7 +10,6 @@ using RCParsing.Building;
 
 namespace AsyncLua.Parsing
 {
-
 	public class AsyncLuaParser
 	{
 		public Parser Parser { get; }
@@ -29,6 +28,11 @@ namespace AsyncLua.Parsing
 			ModifyParserBuilder(builder);
 
 			return builder.Build();
+		}
+
+		public BlockNode Parse(string input)
+		{
+			return Parser.Parse<BlockNode>(input);
 		}
 
 		protected virtual void ModifyParserBuilder(ParserBuilder builder)
@@ -50,6 +54,11 @@ namespace AsyncLua.Parsing
 			DeclareExpressions(builder);
 
 			DeclareStatements(builder);
+
+			builder.CreateMainRule("program")
+				.Rule("block")
+				.EOF()
+				.TransformSelect(0);
 		}
 
 		private static void DeclareExpressions(ParserBuilder builder)
@@ -57,7 +66,14 @@ namespace AsyncLua.Parsing
 			// ── Tokens ────────────────────────────────────────────────────
 
 			builder.CreateToken("keywords")
-				.KeywordChoice("async", "await", "function", "return", "if", "then", "elseif", "else", "end", "for", "while", "do", "break", "local", "global");
+				.KeywordChoice(
+					"async", "await", "lock", "function",
+					"return", "if", "goto", "then",
+					"elseif", "else", "end", "for",
+					"while", "do", "repeat", "until",
+					"break", "local", "global", "and",
+					"or", "not", "in", "true",
+					"false", "nil");
 
 			builder.CreateToken("identifier")
 				.Second(
@@ -151,26 +167,35 @@ namespace AsyncLua.Parsing
 			builder.CreateRule("func_params")
 				.Literal("(")
 				.ZeroOrMoreSeparated(
-					b => b.Token("identifier"),
+					b => b.Choice(
+						b => b.Token("identifier"),
+						b => b.Literal("...")
+					),
 					s => s.Literal(","))
 				.Literal(")")
 				.Transform(v =>
 				{
-					var paramNames = v.Children[1].SelectValues<string>();
-					return paramNames.Select(n => new ParameterNode { Name = n, IsVarArg = false }).ToArray();
+					var paramNames = v.Children[1].Select(v => v.GetValue<string>());
+					var parameters = paramNames.Select(n => new ParameterNode { Name = n, IsVarArg = n == "..." });
+					return parameters.ToArray();
 				});
 
 			builder.CreateRule("function_expr")
+				.Optional(b => b.Keyword("async"))
 				.Keyword("function")
 				.Rule("func_params")
 				.Rule("block")
 				.Keyword("end")
 				.Transform(v =>
 				{
+					var parameters = v.GetValue<ParameterNode[]>(2);
+
 					return new FunctionDeclExpressionNode
 					{
-						Parameters = v.GetValue<ParameterNode[]>(1),
-						Body = v.GetValue<BlockNode>(2)
+						IsAsync = v.Children[0].Length > 0,
+						Parameters = parameters.Where(p => !p.IsVarArg).ToArray(),
+						HasVarArg = parameters.Any(p => p.IsVarArg),
+						Body = v.GetValue<BlockNode>(3)
 					};
 				});
 
@@ -371,18 +396,63 @@ namespace AsyncLua.Parsing
 					return expr;
 				});
 
+			// Bitwise shift operators: <<, >>
+			builder.CreateRule("bitwise_shift_expr")
+				.OneOrMoreSeparated(
+					b => b.Rule("concat_expr"),
+					o => o.LiteralChoice("<<,", ">>"),
+					includeSeparatorsInResult: true)
+				.Transform(v => FoldBinaryOperators(v, new Dictionary<string, BinaryOperatorType>
+				{
+					["<<"] = BinaryOperatorType.BitShiftLeft,
+					[">>"] = BinaryOperatorType.BitShiftRight,
+				}));
+
+			// Bitwise AND: &
+			builder.CreateRule("bitwise_and_expr")
+				.OneOrMoreSeparated(
+					b => b.Rule("bitwise_shift_expr"),
+					o => o.Literal("&"),
+					includeSeparatorsInResult: true)
+				.Transform(v => FoldBinaryOperators(v, new Dictionary<string, BinaryOperatorType>
+				{
+					["&"] = BinaryOperatorType.BitAnd,
+				}));
+
+			// Bitwise XOR: ~
+			builder.CreateRule("bitwise_xor_expr")
+				.OneOrMoreSeparated(
+					b => b.Rule("bitwise_and_expr"),
+					o => o.Literal("~"),
+					includeSeparatorsInResult: true)
+				.Transform(v => FoldBinaryOperators(v, new Dictionary<string, BinaryOperatorType>
+				{
+					["~"] = BinaryOperatorType.BitXor,
+				}));
+
+			// Bitwise OR: |
+			builder.CreateRule("bitwise_or_expr")
+				.OneOrMoreSeparated(
+					b => b.Rule("bitwise_xor_expr"),
+					o => o.Literal("|"),
+					includeSeparatorsInResult: true)
+				.Transform(v => FoldBinaryOperators(v, new Dictionary<string, BinaryOperatorType>
+				{
+					["|"] = BinaryOperatorType.BitOr,
+				}));
+
 			// Relational: <, >, <=, >=, ==, ~=
 			builder.CreateRule("relational_expr")
 				.OneOrMoreSeparated(
-					b => b.Rule("concat_expr"),
+					b => b.Rule("bitwise_or_expr"),
 					o => o.LiteralChoice("<", ">", "<=", ">=", "==", "~="),
 					includeSeparatorsInResult: true)
 				.Transform(v => FoldBinaryOperators(v, new Dictionary<string, BinaryOperatorType>
 				{
 					["<"] = BinaryOperatorType.LessThan,
-					[">"] = BinaryOperatorType.LessThan,
+					[">"] = BinaryOperatorType.GreaterThan,
 					["<="] = BinaryOperatorType.LessThanEqual,
-					[">="] = BinaryOperatorType.LessThanEqual,
+					[">="] = BinaryOperatorType.GreaterThanEqual,
 					["=="] = BinaryOperatorType.Equals,
 					["~="] = BinaryOperatorType.NotEquals,
 				}));
@@ -453,7 +523,7 @@ namespace AsyncLua.Parsing
 					b => b.Newline());
 
 			builder.CreateRule("block")
-				.ZeroOrMoreSeparated(b => b.Rule("statement"), s => s.Rule("statement_separator"))
+				.ZeroOrMoreSeparated(b => b.Rule("statement"), s => s.OneOrMore(b => b.Rule("statement_separator")))
                 .Transform(v => new BlockNode
                 {
                     Statements = v.SelectValues<StatementNode>().ToArray()
@@ -651,6 +721,7 @@ namespace AsyncLua.Parsing
 			// ── Function declaration statements ───────────────────────
 
 			builder.CreateRule("function_decl_statement")
+				.Optional(b => b.Keyword("async"))
 				.Keyword("function")
 				.Token("identifier")
 				.ZeroOrMore(b => b
@@ -664,8 +735,8 @@ namespace AsyncLua.Parsing
 				.Keyword("end")
 				.Transform(v =>
 				{
-					var nameParts = new List<string> { v.GetIntermediateValue<string>(1) };
-					foreach (var child in v.Children[2])
+					var nameParts = new List<string> { v.GetIntermediateValue<string>(2) };
+					foreach (var child in v.Children[3])
 					{
 						nameParts.Add(child.Children[0].GetIntermediateValue<string>(1));
 					}
@@ -674,11 +745,11 @@ namespace AsyncLua.Parsing
 					string? methodName = null;
 					string funcName;
 
-					if (v.Children[3].Length > 0)
+					if (v.Children[4].Length > 0)
 					{
 						// Method-style: function obj.method(...)
 						targetObject = new IdentifierNode { Name = string.Join(".", nameParts) };
-						methodName = v.Children[3].Children[0].GetIntermediateValue<string>(1);
+						methodName = v.Children[4].Children[0].GetIntermediateValue<string>(1);
 						funcName = methodName;
 					}
 					else
@@ -690,29 +761,42 @@ namespace AsyncLua.Parsing
 						}
 					}
 
+					var parameters = v.GetValue<ParameterNode[]>(5);
+
 					return new FunctionDeclStatementNode
 					{
 						Name = funcName,
 						TargetObject = targetObject,
+						MethodName = methodName,
+						IsAsync = v.Children[0].Length > 0,
 						Scope = null, // global
-						Parameters = v.GetValue<ParameterNode[]>(4),
-						Body = v.GetValue<BlockNode>(5)
+						Parameters = parameters.Where(p => !p.IsVarArg).ToArray(),
+						HasVarArg = parameters.Any(p => p.IsVarArg),
+						Body = v.GetValue<BlockNode>(6)
 					};
 				});
 
 			builder.CreateRule("local_function_decl_statement")
+				.Optional(b => b.Keyword("async"))
 				.Keyword("local")
 				.Keyword("function")
 				.Token("identifier")
 				.Rule("func_params")
 				.Rule("block")
 				.Keyword("end")
-				.Transform(v => new FunctionDeclStatementNode
+				.Transform(v =>
 				{
-					Name = v.GetIntermediateValue<string>(2),
-					Scope = VariableScope.Local,
-					Parameters = v.GetValue<ParameterNode[]>(3),
-					Body = v.GetValue<BlockNode>(4)
+					var parameters = v.GetValue<ParameterNode[]>(4);
+
+					return new FunctionDeclStatementNode
+					{
+						Name = v.GetIntermediateValue<string>(3),
+						IsAsync = v.Children[0].Length > 0,
+						Scope = VariableScope.Local,
+						Parameters = parameters.Where(p => !p.IsVarArg).ToArray(),
+						HasVarArg = parameters.Any(p => p.IsVarArg),
+						Body = v.GetValue<BlockNode>(5)
+					};
 				});
 
 			// ── Local declaration ─────────────────────────────────────

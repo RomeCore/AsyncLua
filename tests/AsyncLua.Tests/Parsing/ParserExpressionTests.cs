@@ -316,7 +316,7 @@ public class ParserExpressionTests
     {
         var expr = ParseExpression("1 > 2");
         var bin = Assert.IsType<BinaryOperatorNode>(expr);
-        Assert.Equal(BinaryOperatorType.LessThan, bin.Operator);
+        Assert.Equal(BinaryOperatorType.GreaterThan, bin.Operator);
     }
 
     // ── Logical operators ────────────────────────────────────────────

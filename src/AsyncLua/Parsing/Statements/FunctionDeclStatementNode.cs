@@ -40,11 +40,16 @@ namespace AsyncLua.Parsing.Statements
         /// </summary>
         public string? MethodName { get; set; }
 
-        /// <summary>
-        /// Gets or sets the scope of the function declaration.
-        /// <c>Local</c> for <c>local function</c>, <c>Global</c> or <see langword="null"/> for global.
-        /// </summary>
-        public VariableScope? Scope { get; set; }
+		/// <summary>
+		/// Gets or sets a value indicating whether this function is declared as async.
+		/// </summary>
+		public bool IsAsync { get; set; }
+
+		/// <summary>
+		/// Gets or sets the scope of the function declaration.
+		/// <c>Local</c> for <c>local function</c>, <c>Global</c> or <see langword="null"/> for default.
+		/// </summary>
+		public VariableScope? Scope { get; set; }
 
         /// <summary>
         /// Gets or sets the parameter list.

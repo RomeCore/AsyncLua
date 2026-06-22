@@ -66,6 +66,16 @@ namespace AsyncLua.Interpreting
 		LE,
 
 		/// <summary>
+		/// Test for greater-than. R[A] = (R/K[B] &gt; R/K[C]) ? true : false
+		/// </summary>
+		GT,
+
+		/// <summary>
+		/// Test for greater-than-or-equal. R[A] = (R/K[B] &gt;= R/K[C]) ? true : false
+		/// </summary>
+		GE,
+
+		/// <summary>
 		/// Create a new empty table. R[A] = {}
 		/// </summary>
 		NEWTABLE,

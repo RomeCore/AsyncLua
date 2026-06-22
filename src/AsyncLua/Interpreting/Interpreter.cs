@@ -338,7 +338,27 @@ namespace AsyncLua.Interpreting
 								break;
 							}
 
-                        case OpCode.CALL:
+						case OpCode.GT:
+							{
+								registers[inst.A] = CompareOp(
+									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+									CompareOpKind.Gt, inst);
+								pc++;
+								break;
+							}
+
+						case OpCode.GE:
+							{
+								registers[inst.A] = CompareOp(
+									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+									CompareOpKind.Ge, inst);
+								pc++;
+								break;
+							}
+
+						case OpCode.CALL:
                             {
                                 var func = registers[inst.A] as LuaFunction
                                     ?? throw new LuaRuntimeException("CALL: operand A must be a function.");
@@ -516,7 +536,7 @@ namespace AsyncLua.Interpreting
 
         // ── Comparisons ────────────────────────────────────────────────
 
-        private enum CompareOpKind { Eq, Lt, Le }
+        private enum CompareOpKind { Eq, Lt, Le, Gt, Ge }
 
         private static LuaValue CompareOp(LuaValue lhs, LuaValue rhs, CompareOpKind kind, Instruction inst)
         {
@@ -525,7 +545,9 @@ namespace AsyncLua.Interpreting
                 CompareOpKind.Eq => CompareEqual(lhs, rhs),
                 CompareOpKind.Lt => CompareLessThan(lhs, rhs),
                 CompareOpKind.Le => CompareLessOrEqual(lhs, rhs),
-                _ => throw new LuaRuntimeException($"Unknown comparison operation: {kind}.")
+				CompareOpKind.Gt => CompareGreaterThan(lhs, rhs),
+				CompareOpKind.Ge => CompareGreaterOrEqual(lhs, rhs),
+				_ => throw new LuaRuntimeException($"Unknown comparison operation: {kind}.")
             };
 
             return LuaBoolean.FromBoolean(result);
@@ -556,6 +578,46 @@ namespace AsyncLua.Interpreting
                 lhs.TryToString(out var sa);
                 rhs.TryToString(out var sb);
                 return string.CompareOrdinal(sa, sb) < 0;
+            }
+
+            throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<'.");
+        }
+
+        private static bool CompareGreaterOrEqual(LuaValue lhs, LuaValue rhs)
+        {
+            // Lua less-or-equal: same types as less-than.
+            if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
+            {
+                lhs.TryToNumber(out var a);
+                rhs.TryToNumber(out var b);
+                return a >= b;
+            }
+
+            if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
+            {
+                lhs.TryToString(out var sa);
+                rhs.TryToString(out var sb);
+                return string.CompareOrdinal(sa, sb) >= 0;
+            }
+
+            throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<='.");
+        }
+
+        private static bool CompareGreaterThan(LuaValue lhs, LuaValue rhs)
+        {
+            // Lua less-than: both must be numbers or both must be strings.
+            if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
+            {
+                lhs.TryToNumber(out var a);
+                rhs.TryToNumber(out var b);
+                return a > b;
+            }
+
+            if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
+            {
+                lhs.TryToString(out var sa);
+                rhs.TryToString(out var sb);
+                return string.CompareOrdinal(sa, sb) > 0;
             }
 
             throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<'.");
