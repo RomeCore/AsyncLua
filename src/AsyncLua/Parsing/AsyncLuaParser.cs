@@ -205,7 +205,7 @@ namespace AsyncLua.Parsing
 			builder.CreateRule("await_expr")
 				.Literal("await")
 				.OneOrMoreSeparated(
-					b => b.Rule("primary"),
+					b => b.Rule("postfix_expr"),
 					s => s.Literal(","))
 				.Transform(v => new AwaitExpressionNode
 				{
@@ -220,7 +220,6 @@ namespace AsyncLua.Parsing
 					c => c.Rule("function_expr"),
 					c => c.Rule("table_constructor"),
 					c => c.Rule("vararg_expr"),
-					c => c.Rule("await_expr"),
 					c => c.Rule("identifier_expr"),
 					c => c.Literal("(").Rule("expression").Literal(")").TransformSelect(1));
 
@@ -303,7 +302,9 @@ namespace AsyncLua.Parsing
 			// ── Unary operators ──────────────────────────────────────────
 
 			builder.CreateRule("unary_expr")
-				.ZeroOrMore(b => b.LiteralChoice("-", "not", "#"))
+				.ZeroOrMore(b => b.Choice(
+					b => b.LiteralChoice("-", "not", "#"),
+					b => b.Keyword("await")))
 				.Rule("power_expr")
 				.Transform(v =>
 				{
@@ -312,14 +313,24 @@ namespace AsyncLua.Parsing
 					foreach (var _op in v.Children[0].Reverse())
 					{
 						var opStr = _op.GetIntermediateValue<string>();
-						var type = opStr switch
+						if (opStr == "await")
 						{
-							"-" => UnaryOperatorType.Minus,
-							"not" => UnaryOperatorType.LogicalNot,
-							"#" => UnaryOperatorType.LengthOf,
-							_ => throw new InvalidOperationException($"Unknown unary operator '{opStr}'")
-						};
-						target = new UnaryOperatorNode { Type = type, Operand = target };
+							target = new AwaitExpressionNode
+							{
+								Expressions = new[] { target }
+							};
+						}
+						else
+						{
+							var type = opStr switch
+							{
+								"-" => UnaryOperatorType.Minus,
+								"not" => UnaryOperatorType.LogicalNot,
+								"#" => UnaryOperatorType.LengthOf,
+								_ => throw new InvalidOperationException($"Unknown unary operator '{opStr}'")
+							};
+							target = new UnaryOperatorNode { Type = type, Operand = target };
+						}
 					}
 
 					return target;
@@ -780,8 +791,8 @@ namespace AsyncLua.Parsing
 				});
 
 			builder.CreateRule("local_function_decl_statement")
-				.Optional(b => b.Keyword("async"))
 				.Keyword("local")
+				.Optional(b => b.Keyword("async"))
 				.Keyword("function")
 				.Token("identifier")
 				.Rule("func_params")
@@ -794,7 +805,7 @@ namespace AsyncLua.Parsing
 					return new FunctionDeclStatementNode
 					{
 						Name = v.GetIntermediateValue<string>(3),
-						IsAsync = v.Children[0].Length > 0,
+						IsAsync = v.Children[1].Length > 0,
 						Scope = VariableScope.Local,
 						Parameters = parameters.Where(p => !p.IsVarArg).ToArray(),
 						HasVarArg = parameters.Any(p => p.IsVarArg),

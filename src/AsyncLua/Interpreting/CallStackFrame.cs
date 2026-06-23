@@ -54,6 +54,12 @@ namespace AsyncLua.Interpreting
 		/// </summary>
 		public LuaValue[]? VarArgs;
 
+		/// <summary>
+		/// Tracks the highest register index that has been written to during this frame.
+		/// Used by <see cref="OpCode.RETURN"/> with <c>B=0</c> (variable return count).
+		/// </summary>
+		public int RegisterTop;
+
 		public CallStackFrame(FunctionPrototype function, int returnPC, int resultBase = 0, int resultCount = 0)
 		{
 			if (function == null) throw new ArgumentNullException(nameof(function));

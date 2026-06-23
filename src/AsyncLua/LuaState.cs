@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using AsyncLua.Values;
 
 namespace AsyncLua
@@ -28,6 +29,8 @@ namespace AsyncLua
         public LuaState()
         {
             Globals = new LuaTable();
+            // Standard Lua: _G references the global table itself.
+            Globals.Set(new LuaString("_G"), Globals);
         }
 
         /// <summary>
@@ -65,6 +68,49 @@ namespace AsyncLua
         public LuaCallingContext CreateContext()
         {
             return new LuaCallingContext(this);
+        }
+
+        /// <summary>
+        /// Parses, compiles and executes the specified Lua code synchronously.
+        /// </summary>
+        /// <param name="code">The Lua source code to execute.</param>
+        /// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+        /// <returns>A <see cref="LuaTuple"/> containing all return values from the chunk.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="code"/> is <see langword="null"/>.
+        /// </exception>
+        public LuaTuple Execute(string code, string? sourceName = null)
+        {
+            if (code is null)
+                throw new ArgumentNullException(nameof(code));
+
+            var parser = new Parsing.AsyncLuaParser();
+            var block = parser.Parse(code);
+            var prototype = Compiling.Compiler.Compile(block, sourceName);
+            return Interpreting.Interpreter.Call(prototype, CreateContext());
+        }
+
+        /// <summary>
+        /// Parses, compiles and executes the specified Lua code asynchronously.
+        /// Required for code that uses <c>async</c>/<c>await</c>.
+        /// </summary>
+        /// <param name="code">The Lua source code to execute.</param>
+        /// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+        /// <returns>
+        /// A task that resolves to a <see cref="LuaTuple"/> containing all return values from the chunk.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="code"/> is <see langword="null"/>.
+        /// </exception>
+        public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null)
+        {
+            if (code is null)
+                throw new ArgumentNullException(nameof(code));
+
+            var parser = new Parsing.AsyncLuaParser();
+            var block = parser.Parse(code);
+            var prototype = Compiling.Compiler.Compile(block, sourceName);
+            return await Interpreting.Interpreter.CallAsync(prototype, CreateContext());
         }
     }
 }

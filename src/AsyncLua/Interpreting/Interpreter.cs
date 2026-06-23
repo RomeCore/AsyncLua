@@ -94,6 +94,7 @@ namespace AsyncLua.Interpreting
                     registers[i] = initialArgs[i];
                 for (int i = copyCount; i < registers.Length; i++)
                     registers[i] = LuaNil.Instance;
+                frame.RegisterTop = copyCount;
 
                 // Handle varargs for the initial call.
                 if (function.IsVararg)
@@ -302,13 +303,17 @@ namespace AsyncLua.Interpreting
                                 var results = await task;
                                 // C = 0 means "accept all results" (Lua multiple-return convention).
                                 int wantResults = inst.C == 0 ? results.Count : inst.C;
-
                                 int storeCount = Math.Min(results.Count, wantResults);
                                 for (int i = 0; i < storeCount; i++)
                                     registers[inst.A + i] = results[i];
                                 // Pad with nil if fewer results than expected.
                                 for (int i = storeCount; i < wantResults; i++)
                                     registers[inst.A + i] = LuaNil.Instance;
+
+                                // Track highest written register for RETURN B=0.
+                                int top = inst.A + Math.Max(storeCount, wantResults);
+                                if (top > frame.RegisterTop)
+                                    frame.RegisterTop = top;
 
 								pc++;
 								break;
@@ -585,6 +590,7 @@ namespace AsyncLua.Interpreting
                                     // Pad rest with nil.
                                     for (int i = copyCount; i < newRegs.Length; i++)
                                         newRegs[i] = LuaNil.Instance;
+                                    newFrame.RegisterTop = copyCount;
 
                                     // Switch to new frame.
 
@@ -633,7 +639,11 @@ namespace AsyncLua.Interpreting
 
                         case OpCode.RETURN:
                             {
-                                int resultCount = inst.B;
+                                // B = 0 means "variable number of results" (Lua convention).
+                                // Return all values from R[A] to RegisterTop (tracked by AWAIT).
+                                int resultCount = inst.B == 0
+                                    ? Math.Max(0, frame.RegisterTop - inst.A)
+                                    : inst.B;
 								pc++;
 
 								if (callStack.Count > 0)
@@ -651,10 +661,12 @@ namespace AsyncLua.Interpreting
                                     // Copy results to caller's registers (using callee's stored result info).
                                     int destBase = frame.ResultBase;
                                     int wantResults = frame.ResultCount;
-                                    for (int i = 0; i < resultCount && i < wantResults; i++)
+                                    // If the caller wants multiple results (wantResults=0), accept all.
+                                    int effectiveWant = wantResults == 0 ? resultCount : wantResults;
+                                    for (int i = 0; i < resultCount && i < effectiveWant; i++)
                                         callerFrame.Registers[destBase + i] = registers[inst.A + i];
                                     // Pad with nil.
-                                    for (int i = resultCount; i < wantResults; i++)
+                                    for (int i = resultCount; i < effectiveWant; i++)
                                         callerFrame.Registers[destBase + i] = LuaNil.Instance;
 
 									// Restore caller state.
