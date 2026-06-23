@@ -111,7 +111,22 @@ namespace AsyncLua.Compiling
 				case RepeatNode repeatNode: CompileRepeat(repeatNode); break;
 				case ForNumericNode forNum: CompileForNumeric(forNum); break;
 				case ForInNode forIn: CompileForIn(forIn); break;
-				case DoNode doNode: CompileBlock(doNode.Body); break;
+				case DoNode doNode:
+					{
+						// Save locals to provide a new scope for the block.
+						var savedLocals = new Dictionary<string, int>(_locals);
+						CompileBlock(doNode.Body);
+						// Restore locals: remove newly introduced names, restore overwritten old values.
+						var keysToRemove = new List<string>();
+						foreach (var k in _locals.Keys)
+							if (!savedLocals.ContainsKey(k))
+								keysToRemove.Add(k);
+						foreach (var key in keysToRemove)
+							_locals.Remove(key);
+						foreach (var kv in savedLocals)
+							_locals[kv.Key] = kv.Value;
+						break;
+					}
 				case BreakNode: CompileBreak(); break;
 				case GotoNode gotoNode: CompileGoto(gotoNode); break;
 				case LabelNode labelNode: CompileLabel(labelNode); break;
@@ -138,6 +153,10 @@ namespace AsyncLua.Compiling
 				CompileExpression(node.Values[i], reg);
 			}
 
+			// Ensure enough registers are allocated for all targets (including nil padding).
+			while (_nextRegister < baseReg + targetCount)
+				AllocateRegister();
+
 			// Assign to targets.
 			for (int i = 0; i < targetCount; i++)
 			{
@@ -146,7 +165,7 @@ namespace AsyncLua.Compiling
 				{
 					// Pad with nil.
 					Emit(OpCode.MOVE, srcReg, GetConstantIndex(LuaNil.Instance),
-						flags: OpFlags.KB);
+											flags: OpFlags.KB);
 				}
 
 				var target = node.Targets[i];
@@ -161,9 +180,22 @@ namespace AsyncLua.Compiling
 					{
 						// global x = ... or reassignment: find existing local first.
 						if (_locals.TryGetValue(ident.Name, out int localReg))
+						{
 							Emit(OpCode.MOVE, localReg, srcReg);
+						}
 						else
-							EmitSETGLOBAL(ident.Name, srcReg);
+						{
+							int? upvalueIndex = ResolveUpvalue(ident.Name);
+							if (upvalueIndex.HasValue)
+							{
+								// Assign to an upvalue captured from an outer scope.
+								Emit(OpCode.SETUPVAL, upvalueIndex.Value, srcReg);
+							}
+							else
+							{
+								EmitSETGLOBAL(ident.Name, srcReg);
+							}
+						}
 					}
 				}
 				else if (target is IndexNode index)
@@ -408,10 +440,14 @@ namespace AsyncLua.Compiling
 			int tforCall = _instructions.Count;
 			EmitTFORCALL(baseReg, (ushort)node.Variables.Length);
 
-			int bodyStart = _instructions.Count;
 			int loopEnd = AllocateLabel();
 
-			EmitTFORLOOP(baseReg, bodyStart);
+			// Structure: TFORCALL, TFORLOOP, JMP_exit, body, JMP_back, loopEnd.
+			// bodyStart = tforCall + 3 (TFORCALL + TFORLOOP + JMP_exit).
+			EmitTFORLOOP(baseReg, tforCall + 3);
+			EmitJMP_Label(loopEnd); // nil → skip body and back-jump, go straight to exit
+
+			int bodyStart = _instructions.Count;
 
 			_loopStack.Push(new LoopContext(loopEnd, bodyStart));
 			CompileBlock(node.Body);
@@ -450,6 +486,17 @@ namespace AsyncLua.Compiling
 
 		private void CompileFunctionDeclaration(FunctionDeclStatementNode node)
 		{
+			// For local functions, pre-register the name so recursive calls work.
+			int closureReg = -1;
+			if (node.Scope == VariableScope.Local)
+			{
+				closureReg = AllocateRegister();
+				_locals[node.Name] = closureReg;
+				// Emit a MOVE so the slot is initialised with nil until the CLOSURE is created.
+				Emit(OpCode.MOVE, (byte)closureReg,
+					GetConstantIndex(LuaNil.Instance), flags: OpFlags.KB);
+			}
+
 			var childCompiler = new Compiler(
 				parent: this,
 				isAsync: node.IsAsync,
@@ -470,15 +517,15 @@ namespace AsyncLua.Compiling
 			int protoIndex = _innerPrototypes.Count;
 			_innerPrototypes.Add(innerProto);
 
-			int closureReg = AllocateRegister();
-			EmitCLOSURE(closureReg, (ushort)protoIndex);
-
 			if (node.Scope == VariableScope.Local)
 			{
-				_locals[node.Name] = closureReg;
+				// Reuse the pre-allocated register.
+				EmitCLOSURE(closureReg, (ushort)protoIndex);
 			}
 			else
 			{
+				closureReg = AllocateRegister();
+				EmitCLOSURE(closureReg, (ushort)protoIndex);
 				EmitSETGLOBAL(node.Name, closureReg);
 			}
 		}
@@ -603,8 +650,6 @@ namespace AsyncLua.Compiling
 
 		private void CompileBinaryOp(BinaryOperatorNode node, int destReg)
 		{
-			OpCode op = BinaryOpToOpCode(node.Operator);
-
 			// Logical operators use short-circuit evaluation.
 			if (node.Operator == BinaryOperatorType.LogicalAnd ||
 				node.Operator == BinaryOperatorType.LogicalOr)
@@ -612,6 +657,8 @@ namespace AsyncLua.Compiling
 				CompileLogicalOp(node, destReg);
 				return;
 			}
+
+			OpCode op = BinaryOpToOpCode(node.Operator);
 
 			int leftReg = destReg;
 			int rightReg = AllocateRegister();
@@ -684,13 +731,15 @@ namespace AsyncLua.Compiling
 			if (node.Method is not null)
 			{
 				// obj:method(args) → obj.method(obj, args)
-				// Compile obj into funcReg, then GETTABLE funcReg["method"].
+				// Compile obj into funcReg.
 				CompileExpression(node.Target, funcReg);
-				int methodKeyIndex = GetConstantIndex(new LuaString(node.Method));
-				Emit(OpCode.GETTABLE, (byte)funcReg, (ushort)funcReg,
-					(ushort)methodKeyIndex, OpFlags.KC);
-				// First argument (self) = obj.
+				// Save self (the object) as the first argument BEFORE reading the method,
+				// because GETTABLE will overwrite funcReg.
 				Emit(OpCode.MOVE, (byte)argBase, (ushort)funcReg);
+				// Now read the method into funcReg.
+				int methodKeyIndex = GetConstantIndex(new LuaString(node.Method));
+				Emit(OpCode.GETTABLE, (byte)funcReg, (ushort)argBase,
+					(ushort)methodKeyIndex, OpFlags.KC);
 			}
 			else
 			{

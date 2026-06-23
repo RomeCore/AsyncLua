@@ -43,8 +43,8 @@ namespace AsyncLua.Parsing
 				.Choice(
 					b => b.Spaces(),
 					b => b.Newline(),
-					b => b.Literal("--").TextUntil('\n', '\r').Newline(),
-					b => b.Literal("--[[").TextUntil(["]]"], consumeStopSequence: true)
+					b => b.Literal("--[[").TextUntil("]]").Literal("]]"),
+					b => b.Literal("--").TextUntil('\n', '\r')
 				)
 				.ConfigureForSkip();
 
@@ -73,6 +73,12 @@ namespace AsyncLua.Parsing
 					"break", "local", "global", "and",
 					"or", "not", "in", "true",
 					"false", "nil");
+
+			builder.CreateToken("minus")
+				.First(
+					b => b.Literal("-"),
+					b => b.NegativeLookahead(b => b.Literal("-"))
+				);
 
 			builder.CreateToken("identifier")
 				.Second(
@@ -301,8 +307,9 @@ namespace AsyncLua.Parsing
 
 			builder.CreateRule("unary_expr")
 				.ZeroOrMore(b => b.Choice(
-					b => b.LiteralChoice("-", "not", "#"),
-					b => b.Keyword("await")))
+					b => b.Token("minus"),
+					b => b.Literal("#"),
+					b => b.KeywordChoice("await", "not")))
 				.Rule("power_expr")
 				.Transform(v =>
 				{
@@ -377,7 +384,10 @@ namespace AsyncLua.Parsing
 			builder.CreateRule("additive_expr")
 				.OneOrMoreSeparated(
 					b => b.Rule("multiplicative_expr"),
-					o => o.LiteralChoice("+", "-"),
+					o => o.Choice(
+						b => b.Token("minus"),
+						b => b.Literal("+")
+					),
 					includeSeparatorsInResult: true)
 				.Transform(v => FoldBinaryOperators(v, new Dictionary<string, BinaryOperatorType>
 				{

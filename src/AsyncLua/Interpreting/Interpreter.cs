@@ -198,7 +198,8 @@ namespace AsyncLua.Interpreting
 						case OpCode.UNLOCK:
 							{
 								var lockTarget = registers[inst.A];
-								Monitor.Exit(lockTarget);
+								if (Monitor.IsEntered(lockTarget))
+									Monitor.Exit(lockTarget);
 								// Remove from tracking stack (search from top).
 								if (lockedObjects.Count > 0 && ReferenceEquals(lockedObjects.Peek(), lockTarget))
 									lockedObjects.Pop();
@@ -727,20 +728,13 @@ namespace AsyncLua.Interpreting
 
 						case OpCode.TFORCALL:
 							{
-								// Standard Lua TFORCALL: backup R(A)..R(A+2) to R(A+3)..R(A+5),
-								// then call the backed-up function with backed-up args,
-								// storing results at R(A+3).. onwards.
-								var backupBase = inst.A + 3;
-
-								// Backup f, s, var.
-								registers[backupBase] = registers[inst.A];
-								registers[backupBase + 1] = registers[inst.A + 1];
-								registers[backupBase + 2] = registers[inst.A + 2];
-
-								var tforFunc = registers[backupBase] as LuaFunction
+								// Call R[A] (the iterator function) with arguments R[A+1] (state), R[A+2] (var).
+								// First result → R[A+2] (new var), second result → R[A+1] (new state) if present.
+								// Results are also stored at R[A+3].. for use by loop variables.
+								var tforFunc = registers[inst.A] as LuaFunction
 									?? throw new LuaRuntimeException("TFORCALL: operand A must be a function.");
 
-								var tforArgs = new LuaValue[] { registers[backupBase + 1], registers[backupBase + 2] };
+								var tforArgs = new LuaValue[] { registers[inst.A + 1], registers[inst.A + 2] };
 
 								LuaTuple results;
 								if (async)
@@ -748,15 +742,23 @@ namespace AsyncLua.Interpreting
 								else
 									results = tforFunc.Invoke(context, tforArgs);
 
-								// Store results over the backup area.
+								// Store results at R[A+3].. (for loop variables mapped by the compiler).
+								int baseResult = inst.A + 3;
 								int wantResults = inst.C;
 								if (wantResults == 0)
 									wantResults = results.Count;
 
 								for (int i = 0; i < wantResults && i < results.Count; i++)
-									registers[backupBase + i] = results[i];
+									registers[baseResult + i] = results[i];
 								for (int i = results.Count; i < wantResults; i++)
-									registers[backupBase + i] = LuaNil.Instance;
+									registers[baseResult + i] = LuaNil.Instance;
+
+								// Update var (R[A+2]) from the first result. Nil if exhausted.
+								registers[inst.A + 2] = results.Count > 0 ? results[0] : LuaNil.Instance;
+
+								// Update state (R[A+1]) only if the iterator returned a second value.
+								if (results.Count >= 2)
+									registers[inst.A + 1] = results[1];
 
 								pc++;
 								break;
@@ -764,10 +766,11 @@ namespace AsyncLua.Interpreting
 
 						case OpCode.TFORLOOP:
 							{
-								// If R[A+1] != nil, then R[A] = R[A+1] and jump; else exit.
-								if (registers[inst.A + 1].Type != LuaType.Nil)
+								// If R[A+2] (current value) != nil, jump to body;
+								// otherwise fall through to the exit jump (emitted by the compiler).
+								// R[A] (the iterator function) is preserved across iterations.
+								if (registers[inst.A + 2].Type != LuaType.Nil)
 								{
-									registers[inst.A] = registers[inst.A + 1];
 									pc += GetSignedOffset(inst);
 								}
 								else
@@ -804,9 +807,13 @@ namespace AsyncLua.Interpreting
 			finally
 			{
 				// Release any remaining locks (in reverse order).
+				// Only release locks owned by the current thread; after an await
+				// we may have resumed on a different thread that doesn't own the lock.
 				while (lockedObjects.Count > 0)
 				{
-					Monitor.Exit(lockedObjects.Pop());
+					var obj = lockedObjects.Pop();
+					if (Monitor.IsEntered(obj))
+						Monitor.Exit(obj);
 				}
 			}
 		}
