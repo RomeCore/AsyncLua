@@ -27,6 +27,6 @@ namespace AsyncLua.Parsing.Expressions
         /// <summary>
         /// Gets or sets the expression that must evaluate to a <see cref="AsyncLua.Values.LuaTask"/>.
         /// </summary>
-        public ExpressionNode Expression { get; set; } = null!;
+        public ExpressionNode[] Expressions { get; set; } = [];
     }
 }

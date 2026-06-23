@@ -310,13 +310,22 @@ public class ParserStatementTests
     public void Parse_AwaitStatement_ReturnsAwaitStatementNode()
     {
         var stmt = ParseStatement<AwaitStatementNode>("await task");
-        Assert.IsType<IdentifierNode>(stmt.AwaitExpression.Expression);
-        Assert.Equal("task", ((IdentifierNode)stmt.AwaitExpression.Expression).Name);
+        Assert.IsType<IdentifierNode>(stmt.AwaitExpression.Expressions[0]);
+        Assert.Equal("task", ((IdentifierNode)stmt.AwaitExpression.Expressions[0]).Name);
     }
 
-    // ── Block (multiple statements) ──────────────────────────────────
+	[Fact]
+	public void Parse_AwaitStatement_ReturnsMultipleAwaitStatementNodes()
+	{
+		var stmt = ParseStatement<AwaitStatementNode>("await task1, task2");
+		Assert.IsType<IdentifierNode>(stmt.AwaitExpression.Expressions[0]);
+		Assert.Equal("task1", ((IdentifierNode)stmt.AwaitExpression.Expressions[0]).Name);
+		Assert.Equal("task2", ((IdentifierNode)stmt.AwaitExpression.Expressions[1]).Name);
+	}
 
-    [Fact]
+	// ── Block (multiple statements) ──────────────────────────────────
+
+	[Fact]
     public void Parse_Block_MultipleStatements()
     {
         var block = ParseBlock("x = 1\ny = 2\nz = 3\n");

@@ -164,7 +164,11 @@ namespace AsyncLua.Interpreting
 		/// <summary>
 		/// Await completion of a <see cref="Values.LuaTask"/> stored in <c>R[A]</c>.
 		/// Suspends bytecode execution (via C# <see langword="await"/>) until the task completes.
-		/// Results are stored in <c>R[A]..R[A+N-1]</c> where <c>N</c> is the number of task results.
+		/// <para><c>C</c> = number of results expected by the caller (same semantics as <see cref="CALL"/>).</para>
+		/// <para>
+		/// Results are stored in <c>R[A]..R[A+C-1]</c> (padded with <see langword="nil"/>).
+		/// If <c>C == 0</c>, all task results are stored (up to available registers).
+		/// </para>
 		/// Only valid when the interpreter is running in async mode (<see cref="Interpreter.CallAsync"/>).
 		/// </summary>
 		AWAIT,

@@ -33,7 +33,7 @@ namespace AsyncLua.Values
         private readonly List<Action<LuaTask>>? _continuations;
 
         private LuaTaskStatus _status;
-        private LuaValue[] _result;
+        private LuaTuple _result;
         private Exception? _exception;
 
         // ── Constructors ─────────────────────────────────────────────────
@@ -44,11 +44,11 @@ namespace AsyncLua.Values
         public LuaTask()
         {
             _status = LuaTaskStatus.Pending;
-            _result = Array.Empty<LuaValue>();
+            _result = LuaTuple.Empty;
             _continuations = new List<Action<LuaTask>>();
         }
 
-        private LuaTask(LuaValue[] result)
+        private LuaTask(LuaTuple result)
         {
             _status = LuaTaskStatus.Completed;
             _result = result ?? throw new ArgumentNullException(nameof(result));
@@ -59,7 +59,7 @@ namespace AsyncLua.Values
         {
             _status = LuaTaskStatus.Faulted;
             _exception = exception ?? throw new ArgumentNullException(nameof(exception));
-            _result = Array.Empty<LuaValue>();
+            _result = LuaTuple.Empty;
             _continuations = null;
         }
 
@@ -71,7 +71,18 @@ namespace AsyncLua.Values
         /// <param name="results">The return values of the task.</param>
         /// <returns>A completed task.</returns>
         public static LuaTask FromResult(params LuaValue[] results) =>
-            new LuaTask(results);
+            new LuaTask(new LuaTuple(results));
+
+        /// <summary>
+        /// Creates a <see cref="LuaTask"/> that is already completed with the specified <see cref="LuaTuple"/>.
+        /// </summary>
+        /// <param name="tuple">The return values as a tuple.</param>
+        /// <returns>A completed task.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="tuple"/> is <see langword="null"/>.
+        /// </exception>
+        public static LuaTask FromResult(LuaTuple tuple) =>
+            new LuaTask(tuple);
 
         /// <summary>
         /// Creates a <see cref="LuaTask"/> that is already faulted with the specified exception.
@@ -93,7 +104,7 @@ namespace AsyncLua.Values
         /// <exception cref="ArgumentNullException">
         /// Thrown if <paramref name="task"/> is <see langword="null"/>.
         /// </exception>
-        public static LuaTask FromTask(Task<LuaValue[]> task)
+        public static LuaTask FromTask(Task<LuaTuple> task)
         {
             if (task is null)
                 throw new ArgumentNullException(nameof(task));
@@ -197,13 +208,13 @@ namespace AsyncLua.Values
         }
 
         /// <summary>
-        /// Gets the result of the task. Throws if the task is not in the
-        /// <see cref="LuaTaskStatus.Completed"/> state.
+        /// Gets the result of the task as a <see cref="LuaTuple"/>.
+        /// Throws if the task is not in the <see cref="LuaTaskStatus.Completed"/> state.
         /// </summary>
         /// <exception cref="InvalidOperationException">
         /// Thrown if the task is not completed successfully.
         /// </exception>
-        public LuaValue[] Result
+        public LuaTuple Result
         {
             get
             {
@@ -242,7 +253,7 @@ namespace AsyncLua.Values
 
         /// <summary>
         /// Transitions the task to the <see cref="LuaTaskStatus.Completed"/> state
-        /// and invokes all registered continuations.
+        /// with the specified values and invokes all registered continuations.
         /// </summary>
         /// <param name="results">The return values of the task.</param>
         /// <exception cref="InvalidOperationException">
@@ -250,15 +261,31 @@ namespace AsyncLua.Values
         /// </exception>
         public void SetResult(params LuaValue[] results)
         {
-            if (results is null)
-                throw new ArgumentNullException(nameof(results));
+            SetResult(new LuaTuple(results));
+        }
+
+        /// <summary>
+        /// Transitions the task to the <see cref="LuaTaskStatus.Completed"/> state
+        /// with the specified <see cref="LuaTuple"/> and invokes all registered continuations.
+        /// </summary>
+        /// <param name="tuple">The return values as a tuple. Must not be <see langword="null"/>.</param>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="tuple"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if the task is already in a terminal state.
+        /// </exception>
+        public void SetResult(LuaTuple tuple)
+        {
+            if (tuple is null)
+                throw new ArgumentNullException(nameof(tuple));
 
             List<Action<LuaTask>>? continuations;
             lock (_lock)
             {
                 ThrowIfTerminal();
                 _status = LuaTaskStatus.Completed;
-                _result = results;
+                _result = tuple;
                 continuations = _continuations;
             }
 
@@ -373,7 +400,7 @@ namespace AsyncLua.Values
         {
             var status = Status;
             return status == LuaTaskStatus.Completed
-                ? $"task: completed ({_result.Length} result(s))"
+                ? $"task: completed ({_result.Count} result(s))"
                 : $"task: {status.ToString().ToLowerInvariant()}";
         }
 

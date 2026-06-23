@@ -204,10 +204,12 @@ namespace AsyncLua.Parsing
 
 			builder.CreateRule("await_expr")
 				.Literal("await")
-				.Rule("primary")
+				.OneOrMoreSeparated(
+					b => b.Rule("primary"),
+					s => s.Literal(","))
 				.Transform(v => new AwaitExpressionNode
 				{
-					Expression = v.GetValue<ExpressionNode>(1)
+					Expressions = v.SelectArray<ExpressionNode>(1)
 				});
 
 			// ── Primary ──────────────────────────────────────────────────
@@ -846,12 +848,14 @@ namespace AsyncLua.Parsing
 
 			builder.CreateRule("await_statement")
 				.Keyword("await")
-				.Rule("expression")
+				.OneOrMoreSeparated(
+					b => b.Rule("expression"),
+					s => s.Literal(","))
 				.Transform(v => new AwaitStatementNode
 				{
 					AwaitExpression = new AwaitExpressionNode
 					{
-						Expression = v.GetValue<ExpressionNode>(1)
+						Expressions = v.SelectArray<ExpressionNode>(1)
 					}
 				});
 

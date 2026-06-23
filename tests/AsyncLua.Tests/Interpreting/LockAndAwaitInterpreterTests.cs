@@ -256,7 +256,7 @@ public class LockAndAwaitInterpreterTests
 
         var result = await Interpreter.CallAsync(proto, Context());
         // R[0] is still the task because no results were copied.
-        Assert.IsType<LuaTask>(result);
+        _ = Assert.IsType<LuaTask>(result);
     }
 
     [Fact]

@@ -42,12 +42,12 @@ namespace AsyncLua.Values
         }
 
         /// <summary>
-        /// Gets the result of the completed task.
+        /// Gets the result of the completed task as a <see cref="LuaTuple"/>.
         /// </summary>
         /// <returns>The result values of the task.</returns>
         /// <exception cref="InvalidOperationException">
         /// Thrown if the task is not completed successfully.
         /// </exception>
-        public LuaValue[] GetResult() => _task.Result;
+        public LuaTuple GetResult() => _task.Result;
     }
 }

@@ -19,31 +19,36 @@ namespace AsyncLua.Interpreting
         public const int DefaultMaxStackSize = 1024;
 
 		/// <summary>
-		/// Executes the specified function prototype and returns its first result.
+		/// Executes the specified function prototype and returns all results as a <see cref="LuaTuple"/>.
 		/// </summary>
 		/// <param name="function">The function prototype to execute.</param>
 		/// <param name="context">The global environment table.</param>
 		/// <param name="maxStackSize">Maximum call stack depth.</param>
-		/// <returns>The first return value, or <c>nil</c> if no value is returned.</returns>
-		public static LuaValue Call(FunctionPrototype function, LuaCallingContext context, int maxStackSize = DefaultMaxStackSize)
+		/// <returns>
+		/// A <see cref="LuaTuple"/> containing all return values.
+		/// Use <see cref="LuaTuple.First"/> to get the first value in single-return contexts.
+		/// </returns>
+		public static LuaTuple Call(FunctionPrototype function, LuaCallingContext context, int maxStackSize = DefaultMaxStackSize)
         {
             return CallInternal(function, context, maxStackSize, async: false).GetAwaiter().GetResult();
         }
 
 		/// <summary>
-		/// Executes the specified function prototype asynchronously and returns its first result.
+		/// Executes the specified function prototype asynchronously and returns all results as a <see cref="LuaTuple"/>.
 		/// Required for functions that use <see cref="OpCode.AWAIT"/>.
 		/// </summary>
 		/// <param name="function">The function prototype to execute.</param>
 		/// <param name="context">The global environment table.</param>
 		/// <param name="maxStackSize">Maximum call stack depth.</param>
-		/// <returns>The first return value, or <c>nil</c> if no value is returned.</returns>
-		public static Task<LuaValue> CallAsync(FunctionPrototype function, LuaCallingContext context, int maxStackSize = DefaultMaxStackSize)
+		/// <returns>
+		/// A task that resolves to a <see cref="LuaTuple"/> containing all return values.
+		/// </returns>
+		public static Task<LuaTuple> CallAsync(FunctionPrototype function, LuaCallingContext context, int maxStackSize = DefaultMaxStackSize)
         {
             return CallInternal(function, context, maxStackSize, async: true);
         }
 
-        private static async Task<LuaValue> CallInternal(FunctionPrototype function, LuaCallingContext context, int maxStackSize, bool async)
+        private static async Task<LuaTuple> CallInternal(FunctionPrototype function, LuaCallingContext context, int maxStackSize, bool async)
         {
             if (maxStackSize <= 0)
                 throw new ArgumentException("Max stack size must be greater than zero.", nameof(maxStackSize));
@@ -243,9 +248,15 @@ namespace AsyncLua.Interpreting
                                     ?? throw new LuaRuntimeException("AWAIT: operand A must be a LuaTask.");
 
                                 var results = await task;
-                                // Store results in R[A]..R[A + results.Length - 1]
-                                for (int i = 0; i < results.Length; i++)
+                                // C = 0 means "accept all results" (Lua multiple-return convention).
+                                int wantResults = inst.C == 0 ? results.Count : inst.C;
+
+                                int storeCount = Math.Min(results.Count, wantResults);
+                                for (int i = 0; i < storeCount; i++)
                                     registers[inst.A + i] = results[i];
+                                // Pad with nil if fewer results than expected.
+                                for (int i = storeCount; i < wantResults; i++)
+                                    registers[inst.A + i] = LuaNil.Instance;
 
 								pc++;
 								break;
@@ -573,35 +584,34 @@ namespace AsyncLua.Interpreting
                                     }
 
                                     // Return to caller frame.
-                                    var currentFrame = frame;
                                     var callerFrame = callStack.Pop();
 
                                     // Copy results to caller's registers (using callee's stored result info).
-                                    int destBase = currentFrame.ResultBase;
-                                    int wantResults = currentFrame.ResultCount;
+                                    int destBase = frame.ResultBase;
+                                    int wantResults = frame.ResultCount;
                                     for (int i = 0; i < resultCount && i < wantResults; i++)
                                         callerFrame.Registers[destBase + i] = registers[inst.A + i];
                                     // Pad with nil.
                                     for (int i = resultCount; i < wantResults; i++)
                                         callerFrame.Registers[destBase + i] = LuaNil.Instance;
 
-                                    // Restore caller state.
-                                    frame = callerFrame;
+									// Restore caller state.
+									pc = frame.ReturnPC;
+									frame = callerFrame;
                                     registers = callerFrame.Registers;
                                     constants = callerFrame.Function.Constants;
                                     instructions = callerFrame.Function.Instructions;
-                                    pc = currentFrame.ReturnPC;
                                 }
                                 else
                                 {
-                                    // Top-level return.
-                                    if (resultCount == 0)
-                                        return LuaNil.Instance;
-                                    return registers[inst.A];
+                                    // Top-level return — collect all results into a LuaTuple.
+                                    var results = new LuaValue[resultCount];
+                                    for (int i = 0; i < resultCount; i++)
+                                        results[i] = registers[inst.A + i];
+                                    return new LuaTuple(results);
                                 }
                                 break;
                             }
-
 
 						case OpCode.FORPREP:
 							{
