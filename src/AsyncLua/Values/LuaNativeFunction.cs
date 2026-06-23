@@ -27,6 +27,9 @@ namespace AsyncLua.Values
         /// </summary>
         public FunctionPrototype Prototype { get; }
 
+		/// <inheritdoc />
+		public override bool IsAsync => Prototype.IsAsync;
+
         /// <summary>
         /// Gets the upvalues captured from enclosing scopes.
         /// An empty array indicates a top-level function or a function with no captured variables.

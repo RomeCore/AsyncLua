@@ -16,6 +16,11 @@ namespace AsyncLua.Values
         /// <inheritdoc />
         public override string TypeName => "function";
 
+		/// <summary>
+		/// Determines whether this function is asynchronous.
+		/// </summary>
+		public abstract bool IsAsync { get; }
+
         /// <summary>
         /// Invokes the function asynchronously with the specified arguments.
         /// </summary>

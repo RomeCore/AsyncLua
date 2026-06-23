@@ -15,15 +15,16 @@ public class CallInterpreterTests
         return new FunctionPrototype(
             instructions,
             maxRegSize,
-            constants ?? Array.Empty<LuaValue>(),
+			false,
+			constants ?? Array.Empty<LuaValue>(),
             Array.Empty<FunctionPrototype>());
     }
 
-    private static LuaTable Globals() => new();
+	private static LuaCallingContext Context() => new LuaState().CreateContext();
 
-    // ── CALL: C# callback ─────────────────────────────────────────────
+	// ── CALL: C# callback ─────────────────────────────────────────────
 
-    [Fact]
+	[Fact]
     public void Call_CSharpCallback_ReturnsResult()
     {
         // Register a function that doubles its argument.
@@ -39,7 +40,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 2, constants: new LuaValue[] { doubleFunc, new LuaNumber(21) });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -60,7 +61,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 3, constants: new LuaValue[] { addFunc, new LuaNumber(10), new LuaNumber(32) });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -77,7 +78,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { noop });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.IsType<LuaNil>(result);
     }
 
@@ -92,7 +93,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42) });
 
-        Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Globals()));
+        Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Context()));
     }
 
     // ── CALL: Lua bytecode function ───────────────────────────────────
@@ -119,7 +120,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 3, constants: new LuaValue[] { innerFunc, new LuaNumber(10), new LuaNumber(32) });
 
-        var result = _interpreter.Call(outerProto, Globals());
+        var result = _interpreter.Call(outerProto, Context());
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -152,7 +153,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { level2Func, level3Func });
 
-        var result = _interpreter.Call(level1, Globals());
+        var result = _interpreter.Call(level1, Context());
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -174,7 +175,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 2, constants: new LuaValue[] { asyncFunc, new LuaNumber(14) });
 
-        var result = _interpreter.CallAsync(proto, Globals()).GetAwaiter().GetResult();
+        var result = _interpreter.CallAsync(proto, Context()).GetAwaiter().GetResult();
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -192,7 +193,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { func });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -209,7 +210,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { func });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.IsType<LuaCallbackFunction>(result);
     }
 
@@ -226,7 +227,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { func });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.Equal(10.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -244,7 +245,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 3, constants: new LuaValue[] { func });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         // 3rd result is nil (padded).
         Assert.IsType<LuaNil>(result);
     }
@@ -262,7 +263,7 @@ public class CallInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { throwing });
 
-        var ex = Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Globals()));
+        var ex = Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Context()));
         Assert.Contains("inside callback", ex.Message);
     }
 }

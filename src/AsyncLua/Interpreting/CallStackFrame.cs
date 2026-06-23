@@ -48,6 +48,12 @@ namespace AsyncLua.Interpreting
 		/// </summary>
 		public Upvalue?[]? OpenUpvalues;
 
+		/// <summary>
+		/// Extra arguments passed to a vararg function, beyond the fixed parameters.
+		/// <see langword="null"/> if the function does not use varargs or no extra arguments were passed.
+		/// </summary>
+		public LuaValue[]? VarArgs;
+
 		public CallStackFrame(FunctionPrototype function, int returnPC, int resultBase = 0, int resultCount = 0)
 		{
 			if (function == null) throw new ArgumentNullException(nameof(function));
@@ -56,6 +62,8 @@ namespace AsyncLua.Interpreting
 			ReturnPC = returnPC;
 			ResultBase = resultBase;
 			ResultCount = resultCount;
+			OpenUpvalues = null;
+			VarArgs = null;
 		}
 	}
 }

@@ -15,15 +15,16 @@ public class TableInterpreterTests
         return new FunctionPrototype(
             instructions,
             maxRegSize,
-            constants ?? Array.Empty<LuaValue>(),
+			false,
+			constants ?? Array.Empty<LuaValue>(),
             Array.Empty<FunctionPrototype>());
     }
 
-    private static LuaTable Globals() => new();
+	private static LuaCallingContext Context() => new LuaState().CreateContext();
 
-    // ── NEWTABLE ──────────────────────────────────────────────────────
+	// ── NEWTABLE ──────────────────────────────────────────────────────
 
-    [Fact]
+	[Fact]
     public void NewTable_CreatesEmptyTable()
     {
         // R[0] = {}
@@ -33,7 +34,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1);
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.IsType<LuaTable>(result);
     }
 
@@ -46,7 +47,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1);
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         var table = Assert.IsType<LuaTable>(result);
         Assert.Equal(0, table.Count);
     }
@@ -69,7 +70,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("key"), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -89,7 +90,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("k"), new LuaNumber(10), new LuaNumber(99) });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.Equal(99.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -105,7 +106,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("nope") });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.IsType<LuaNil>(result);
     }
 
@@ -125,7 +126,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 2, constants: new LuaValue[] { new LuaString("key"), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -140,7 +141,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaString("key") });
 
-        Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Globals()));
+        Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Context()));
     }
 
     // ── GETGLOBAL / SETGLOBAL ─────────────────────────────────────────
@@ -149,14 +150,14 @@ public class TableInterpreterTests
     public void SetGlobal_ThenGetGlobal_ReturnsStoredValue()
     {
         // _G["x"] = 42; R[0] = _G["x"]; return R[0]
-        var g = Globals();
+        var g = Context();
         var proto = MakeProto(new[]
         {
             // _G["x"] = 42
             new Instruction(OpCode.MOVE, a: 0, b: 1, c: 0, flags: OpFlags.KB),     // R[0] = 42
-            new Instruction(OpCode.SETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.None), // _G[K[0]] = R[0]
+            new Instruction(OpCode.SETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.KB),   // _G[K[0]] = R[0]
             // R[0] = _G["x"]
-            new Instruction(OpCode.GETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.None), // R[0] = _G[K[0]]
+            new Instruction(OpCode.GETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.KB),   // R[0] = _G[K[0]]
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("x"), new LuaNumber(42) });
 
@@ -170,11 +171,11 @@ public class TableInterpreterTests
         // R[0] = _G["does_not_exist"]; return R[0]
         var proto = MakeProto(new[]
         {
-            new Instruction(OpCode.GETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.None),
+            new Instruction(OpCode.GETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.KB),
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("does_not_exist") });
 
-        var result = _interpreter.Call(proto, Globals());
+        var result = _interpreter.Call(proto, Context());
         Assert.IsType<LuaNil>(result);
     }
 
@@ -182,17 +183,17 @@ public class TableInterpreterTests
     public void SetGlobal_OverwritesExistingValue()
     {
         // _G["x"] = 10; _G["x"] = 99; R[0] = _G["x"]; return R[0]
-        var g = Globals();
+        var g = Context();
         var proto = MakeProto(new[]
         {
             // _G["x"] = 10
             new Instruction(OpCode.MOVE, a: 0, b: 1, c: 0, flags: OpFlags.KB),
-            new Instruction(OpCode.SETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.None),
+            new Instruction(OpCode.SETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.KB),
             // _G["x"] = 99
             new Instruction(OpCode.MOVE, a: 0, b: 2, c: 0, flags: OpFlags.KB),
-            new Instruction(OpCode.SETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.None),
+            new Instruction(OpCode.SETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.KB),
             // R[0] = _G["x"]
-            new Instruction(OpCode.GETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.None),
+            new Instruction(OpCode.GETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.KB),
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("x"), new LuaNumber(10), new LuaNumber(99) });
 
@@ -203,13 +204,13 @@ public class TableInterpreterTests
     [Fact]
     public void SetGlobal_PersistsBetweenCalls()
     {
-        var g = Globals();
+        var g = Context();
 
         // First call: _G["shared"] = 77
         var proto1 = MakeProto(new[]
         {
             new Instruction(OpCode.MOVE, a: 0, b: 1, c: 0, flags: OpFlags.KB),
-            new Instruction(OpCode.SETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.None),
+            new Instruction(OpCode.SETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.KB),
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("shared"), new LuaNumber(77) });
 
@@ -218,7 +219,7 @@ public class TableInterpreterTests
         // Second call: R[0] = _G["shared"]
         var proto2 = MakeProto(new[]
         {
-            new Instruction(OpCode.GETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.None),
+            new Instruction(OpCode.GETGLOBAL, a: 0, b: 0, c: 0, flags: OpFlags.KB),
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("shared") });
 

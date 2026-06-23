@@ -17,14 +17,15 @@ public class ClosureInterpreterTests
         return new FunctionPrototype(
             instructions,
             maxRegSize,
+            false,
             constants ?? Array.Empty<LuaValue>(),
             innerPrototypes ?? Array.Empty<FunctionPrototype>(),
             upvalueDescriptions: upvalueDescriptions);
     }
 
-    private static LuaTable Globals() => new();
+	private static LuaCallingContext Context() => new LuaState().CreateContext();
 
-    [Fact]
+	[Fact]
     public void Closure_CapturesLocalVariable_UpvalueWorks()
     {
         // Inner function: return n + 1
@@ -51,7 +52,7 @@ public class ClosureInterpreterTests
         innerPrototypes: new[] { innerProto });
 
         // Execute outer, get closure.
-        var closure = _interpreter.Call(outerProto, Globals());
+        var closure = _interpreter.Call(outerProto, Context());
         var func = Assert.IsType<LuaNativeFunction>(closure);
 
         // Verify upvalue was captured.
@@ -67,7 +68,7 @@ public class ClosureInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { func });
 
-        var result = _interpreter.Call(callProto, Globals());
+        var result = _interpreter.Call(callProto, Context());
         Assert.Equal(11.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -109,7 +110,7 @@ public class ClosureInterpreterTests
         }, maxRegSize: 6, constants: new LuaValue[] { new LuaNumber(10), new LuaNumber(99) },
         innerPrototypes: new[] { innerProto });
 
-        var result = _interpreter.Call(outerProto, Globals());
+        var result = _interpreter.Call(outerProto, Context());
         // Both closures share the same upvalue: when R[1] becomes 99, both see 99.
         // f1() = 99, f2() = 99, 99+99 = 198.
         Assert.Equal(198.0, Assert.IsType<LuaNumber>(result).Value);
@@ -156,7 +157,7 @@ public class ClosureInterpreterTests
         }, maxRegSize: 5, constants: new LuaValue[] { new LuaNumber(0) },
         innerPrototypes: new[] { innerProto });
 
-        var result = _interpreter.Call(outerProto, Globals());
+        var result = _interpreter.Call(outerProto, Context());
         Assert.Equal(3.0, Assert.IsType<LuaNumber>(result).Value);
     }
 }

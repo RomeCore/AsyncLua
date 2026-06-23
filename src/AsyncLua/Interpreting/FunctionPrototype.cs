@@ -21,6 +21,11 @@ namespace AsyncLua.Interpreting
 		public int MaxRegSize { get; }
 
 		/// <summary>
+		/// Gets whether this function is an asynchronous function or not.
+		/// </summary>
+		public bool IsAsync { get; }
+
+		/// <summary>
 		/// The list of constants used by this function.
 		/// </summary>
 		public LuaValue[] Constants { get; }
@@ -62,6 +67,7 @@ namespace AsyncLua.Interpreting
 		/// </summary>
 		/// <param name="instructions">The list of instructions that make up the function. Cannot be null.</param>
 		/// <param name="maxRegSize">The maximum number of registers used by this function. Must be non-negative.</param>
+		/// <param name="isAsync">Whether this function is an asynchronous function.</param>
 		/// <param name="constants">The list of constants used by this function. Cannot be null.</param>
 		/// <param name="innerPrototypes">The list of inner prototypes for this function. Used for creating closures.</param>
 		/// <param name="parameterCount">The number of fixed parameters.</param>
@@ -73,6 +79,7 @@ namespace AsyncLua.Interpreting
 		public FunctionPrototype(
 			Instruction[] instructions,
 			int maxRegSize,
+			bool isAsync,
 			LuaValue[] constants,
 			FunctionPrototype[] innerPrototypes,
 			byte parameterCount = 0,
@@ -83,6 +90,7 @@ namespace AsyncLua.Interpreting
 		{
 			Instructions = instructions ?? throw new ArgumentNullException(nameof(instructions));
 			MaxRegSize = maxRegSize < 0 ? throw new ArgumentOutOfRangeException(nameof(maxRegSize), "The maximum register size must be non-negative.") : maxRegSize;
+			IsAsync = isAsync;
 			Constants = constants ?? throw new ArgumentNullException(nameof(constants));
 			InnerPrototypes = innerPrototypes ?? throw new ArgumentNullException(nameof(innerPrototypes));
 			ParameterCount = parameterCount;

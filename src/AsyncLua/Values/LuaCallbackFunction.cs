@@ -15,18 +15,29 @@ namespace AsyncLua.Values
     /// </para>
     /// </remarks>
     public sealed class LuaCallbackFunction : LuaFunction
-    {
-        /// <summary>
-        /// Delegate signature for C#-implemented Lua functions.
-        /// Receives a calling context and arguments, and returns results asynchronously.
-        /// </summary>
-        /// <param name="context">The calling context, providing access to the Lua runtime.</param>
-        /// <param name="args">The arguments passed to the function.</param>
-        /// <returns>A task that resolves to the function's return values.</returns>
-        public delegate Task<LuaTuple> CallbackDelegate(LuaCallingContext context, LuaValue[] args);
+	{
+		/// <summary>
+		/// Delegate signature for C#-implemented Lua functions.
+		/// Receives a calling context and arguments, and returns results.
+		/// </summary>
+		/// <param name="context">The calling context, providing access to the Lua runtime.</param>
+		/// <param name="args">The arguments passed to the function.</param>
+		/// <returns>A value or array of values returned by the function.</returns>
+		public delegate LuaTuple CallbackDelegate(LuaCallingContext context, LuaValue[] args);
 
-        private readonly CallbackDelegate _callback;
+		/// <summary>
+		/// Delegate signature for C#-implemented Lua async functions.
+		/// Receives a calling context and arguments, and returns results asynchronously.
+		/// </summary>
+		/// <param name="context">The calling context, providing access to the Lua runtime.</param>
+		/// <param name="args">The arguments passed to the function.</param>
+		/// <returns>A task that resolves to the function's return values.</returns>
+		public delegate Task<LuaTuple> AsyncCallbackDelegate(LuaCallingContext context, LuaValue[] args);
+
+		private readonly AsyncCallbackDelegate _callback;
         private readonly string? _name;
+
+		public override bool IsAsync { get; }
 
         /// <summary>
         /// Initialises a new instance of the <see cref="LuaCallbackFunction"/> class.
@@ -38,12 +49,30 @@ namespace AsyncLua.Values
         /// </exception>
         public LuaCallbackFunction(CallbackDelegate callback, string? name = null)
         {
-            _callback = callback ?? throw new ArgumentNullException(nameof(callback));
+            _callback = callback is null ? throw new ArgumentNullException(nameof(callback)) :
+                new AsyncCallbackDelegate((ctx, args) => Task.FromResult(callback(ctx, args)));
             _name = name;
-        }
+            IsAsync = false;
 
-        /// <inheritdoc />
-        public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, LuaValue[] args)
+		}
+
+		/// <summary>
+		/// Initialises a new instance of the <see cref="LuaCallbackFunction"/> class.
+		/// </summary>
+		/// <param name="callback">The delegate to invoke when this function is called.</param>
+		/// <param name="name">An optional display name for debugging.</param>
+		/// <exception cref="ArgumentNullException">
+		/// Thrown if <paramref name="callback"/> is <see langword="null"/>.
+		/// </exception>
+		public LuaCallbackFunction(AsyncCallbackDelegate callback, string? name = null)
+		{
+			_callback = callback ?? throw new ArgumentNullException(nameof(callback));
+			_name = name;
+			IsAsync = false;
+		}
+
+		/// <inheritdoc />
+		public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, LuaValue[] args)
         {
             return _callback(context, args);
         }
@@ -73,7 +102,7 @@ namespace AsyncLua.Values
                 throw new ArgumentNullException(nameof(func));
 
             return new LuaCallbackFunction(
-                (ctx, args) => Task.FromResult(new LuaTuple(func(args))),
+                (ctx, args) => new LuaTuple(func(args)),
                 name);
         }
 
@@ -92,7 +121,7 @@ namespace AsyncLua.Values
                 throw new ArgumentNullException(nameof(func));
 
             return new LuaCallbackFunction(
-                (ctx, args) => Task.FromResult(func(args)),
+                (ctx, args) => func(args),
                 name);
         }
 
@@ -130,7 +159,7 @@ namespace AsyncLua.Values
                 throw new ArgumentNullException(nameof(func));
 
             return new LuaCallbackFunction(
-                new CallbackDelegate((ctx, args) => func(args)),
+                new AsyncCallbackDelegate((ctx, args) => func(args)),
                 name);
         }
 
@@ -148,7 +177,7 @@ namespace AsyncLua.Values
                 throw new ArgumentNullException(nameof(func));
 
             return new LuaCallbackFunction(
-                (ctx, args) => Task.FromResult(new LuaTuple(func())),
+                (ctx, args) => new LuaTuple(func()),
                 name);
         }
 

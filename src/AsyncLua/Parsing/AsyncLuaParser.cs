@@ -43,7 +43,8 @@ namespace AsyncLua.Parsing
 		{
 			builder.CreateRule("skip")
 				.Choice(
-					b => b.Whitespaces(),
+					b => b.Spaces(),
+					b => b.Newline(),
 					b => b.Literal("--").TextUntil('\n', '\r').Newline(),
 					b => b.Literal("--[[").TextUntil(["]]"], consumeStopSequence: true)
 				)
