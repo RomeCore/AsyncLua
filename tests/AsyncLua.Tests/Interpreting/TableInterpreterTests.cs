@@ -33,7 +33,7 @@ public class TableInterpreterTests
         }, maxRegSize: 1);
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaTable>(result);
+        Assert.IsType<LuaTable>(result.First);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class TableInterpreterTests
         }, maxRegSize: 1);
 
         var result = Interpreter.Call(proto, Context());
-        var table = Assert.IsType<LuaTable>(result);
+        var table = Assert.IsType<LuaTable>(result.First);
         Assert.Equal(0, table.Count);
     }
 
@@ -69,7 +69,7 @@ public class TableInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("key"), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class TableInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("k"), new LuaNumber(10), new LuaNumber(99) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(99.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(99.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public class TableInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("nope") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaNil>(result);
+        Assert.IsType<LuaNil>(result.First);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class TableInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { new LuaString("key"), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public class TableInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("x"), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, g);
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -174,7 +174,7 @@ public class TableInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("does_not_exist") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaNil>(result);
+        Assert.IsType<LuaNil>(result.First);
     }
 
     [Fact]
@@ -196,7 +196,7 @@ public class TableInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("x"), new LuaNumber(10), new LuaNumber(99) });
 
         var result = Interpreter.Call(proto, g);
-        Assert.Equal(99.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(99.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -222,6 +222,6 @@ public class TableInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("shared") });
 
         var result = Interpreter.Call(proto2, g);
-        Assert.Equal(77.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(77.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 }

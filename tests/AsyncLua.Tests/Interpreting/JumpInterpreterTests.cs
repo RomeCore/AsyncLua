@@ -36,7 +36,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(99) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     // ── JMPIF (conditional) ───────────────────────────────────────────
@@ -80,7 +80,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(99) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { LuaBoolean.False, new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { new LuaNumber(0), new LuaNumber(99) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(0.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(0.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { new LuaString(""), new LuaString("nope"), new LuaString("yes") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal("yes", Assert.IsType<LuaString>(result).Value);
+        Assert.Equal("yes", Assert.IsType<LuaString>(result.First).Value);
     }
 
     // ── Combined: if-then-else pattern ────────────────────────────────
@@ -178,7 +178,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { LuaBoolean.True, new LuaNumber(42), new LuaNumber(99) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     // ── Offset = 1 (fall through) ─────────────────────────────────────
@@ -195,7 +195,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public class JumpInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { LuaBoolean.True, new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     // ── Real backward loop ─────────────────────────────────────────────
@@ -244,6 +244,6 @@ public class JumpInterpreterTests
         });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(0.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(0.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 }

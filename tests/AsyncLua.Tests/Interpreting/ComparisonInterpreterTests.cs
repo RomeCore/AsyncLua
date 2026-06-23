@@ -33,7 +33,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(99) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.False, result);
+        Assert.Equal(LuaBoolean.False, result.First);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("hello"), new LuaString("hello") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("hello"), new LuaString("world") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.False, result);
+        Assert.Equal(LuaBoolean.False, result.First);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaString("42") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.False, result);
+        Assert.Equal(LuaBoolean.False, result.First);
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 3);
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     [Fact]
@@ -117,7 +117,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { LuaBoolean.True, LuaBoolean.True });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     // ── Less-than ─────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(99), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.False, result);
+        Assert.Equal(LuaBoolean.False, result.First);
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.False, result);
+        Assert.Equal(LuaBoolean.False, result.First);
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("abc"), new LuaString("abd") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("abc"), new LuaString("abc") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.False, result);
+        Assert.Equal(LuaBoolean.False, result.First);
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     [Fact]
@@ -232,7 +232,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     [Fact]
@@ -246,7 +246,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(99), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.False, result);
+        Assert.Equal(LuaBoolean.False, result.First);
     }
 
     [Fact]
@@ -260,7 +260,7 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("abc"), new LuaString("abc") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(LuaBoolean.True, result);
+        Assert.Equal(LuaBoolean.True, result.First);
     }
 
     [Fact]
@@ -288,6 +288,6 @@ public class ComparisonInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(1), new LuaNumber(2) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaBoolean>(result);
+        Assert.IsType<LuaBoolean>(result.First);
     }
 }

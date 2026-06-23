@@ -35,7 +35,7 @@ public class LockAndAwaitInterpreterTests
         }, maxRegSize: 1);
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaTable>(result);
+        Assert.IsType<LuaTable>(result.First);
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class LockAndAwaitInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("x"), new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class LockAndAwaitInterpreterTests
 
         // Should not throw SynchronizationLockException.
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaTable>(result);
+        Assert.IsType<LuaTable>(result.First);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class LockAndAwaitInterpreterTests
         }, maxRegSize: 2);
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaTable>(result);
+        Assert.IsType<LuaTable>(result.First);
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class LockAndAwaitInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("lockme") });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaString>(result);
+        Assert.IsType<LuaString>(result.First);
     }
 
     // ── AWAIT (async) ─────────────────────────────────────────────────
@@ -141,7 +141,7 @@ public class LockAndAwaitInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { completedTask });
 
         var result = await Interpreter.CallAsync(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -165,7 +165,7 @@ public class LockAndAwaitInterpreterTests
         });
 
         var result = await Interpreter.CallAsync(proto, Context());
-        Assert.Equal(99.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(99.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -184,7 +184,7 @@ public class LockAndAwaitInterpreterTests
         }, maxRegSize: 3, constants: new LuaValue[] { task });
 
         var result = await Interpreter.CallAsync(proto, Context());
-        Assert.Equal(30.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(30.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public class LockAndAwaitInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { completedTask });
 
         var result = await Interpreter.CallAsync(proto, Context());
-        Assert.Equal(77.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(77.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public class LockAndAwaitInterpreterTests
         }, maxRegSize: 1);
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaTable>(result);
+        Assert.IsType<LuaTable>(result.First);
     }
 
     // ── AWAIT edge cases ──────────────────────────────────────────────
@@ -256,7 +256,7 @@ public class LockAndAwaitInterpreterTests
 
         var result = await Interpreter.CallAsync(proto, Context());
         // R[0] is still the task because no results were copied.
-        _ = Assert.IsType<LuaTask>(result);
+        _ = Assert.IsType<LuaTask>(result.First);
     }
 
     [Fact]

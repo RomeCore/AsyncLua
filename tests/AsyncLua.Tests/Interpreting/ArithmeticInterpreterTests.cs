@@ -34,7 +34,7 @@ public class ArithmeticInterpreterTests
 
         var result = Interpreter.Call(proto, Context());
         // R[0] = R[1] (nil), returns R[0] = nil
-        Assert.IsType<LuaNil>(result);
+        Assert.IsType<LuaNil>(result.First);
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class ArithmeticInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42) });
 
         var result = Interpreter.Call(proto, Context());
-        var num = Assert.IsType<LuaNumber>(result);
+        var num = Assert.IsType<LuaNumber>(result.First);
         Assert.Equal(42.0, num.Value);
     }
 
@@ -65,7 +65,7 @@ public class ArithmeticInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaNumber(32) });
 
         var result = Interpreter.Call(proto, Context());
-        var num = Assert.IsType<LuaNumber>(result);
+        var num = Assert.IsType<LuaNumber>(result.First);
         Assert.Equal(42.0, num.Value);
     }
 
@@ -80,7 +80,7 @@ public class ArithmeticInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(100), new LuaNumber(58) });
 
         var result = Interpreter.Call(proto, Context());
-        var num = Assert.IsType<LuaNumber>(result);
+        var num = Assert.IsType<LuaNumber>(result.First);
         Assert.Equal(42.0, num.Value);
     }
 
@@ -95,7 +95,7 @@ public class ArithmeticInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(6), new LuaNumber(7) });
 
         var result = Interpreter.Call(proto, Context());
-        var num = Assert.IsType<LuaNumber>(result);
+        var num = Assert.IsType<LuaNumber>(result.First);
         Assert.Equal(42.0, num.Value);
     }
 
@@ -110,7 +110,7 @@ public class ArithmeticInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(84), new LuaNumber(2) });
 
         var result = Interpreter.Call(proto, Context());
-        var num = Assert.IsType<LuaNumber>(result);
+        var num = Assert.IsType<LuaNumber>(result.First);
         Assert.Equal(42.0, num.Value);
     }
 
@@ -125,7 +125,7 @@ public class ArithmeticInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(85), new LuaNumber(2) });
 
         var result = Interpreter.Call(proto, Context());
-        var num = Assert.IsType<LuaNumber>(result);
+        var num = Assert.IsType<LuaNumber>(result.First);
         Assert.Equal(42.0, num.Value);
     }
 
@@ -140,7 +140,7 @@ public class ArithmeticInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(-85), new LuaNumber(2) });
 
         var result = Interpreter.Call(proto, Context());
-        var num = Assert.IsType<LuaNumber>(result);
+        var num = Assert.IsType<LuaNumber>(result.First);
         Assert.Equal(-43.0, num.Value);
     }
 
@@ -178,7 +178,7 @@ public class ArithmeticInterpreterTests
         });
 
         var result = Interpreter.Call(proto, Context());
-        var num = Assert.IsType<LuaNumber>(result);
+        var num = Assert.IsType<LuaNumber>(result.First);
         Assert.Equal(43.0, num.Value);
     }
 
@@ -206,6 +206,6 @@ public class ArithmeticInterpreterTests
         }, maxRegSize: 1);
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaNil>(result);
+        Assert.IsType<LuaNil>(result.First);
     }
 }

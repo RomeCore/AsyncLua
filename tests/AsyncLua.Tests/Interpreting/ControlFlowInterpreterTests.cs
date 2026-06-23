@@ -50,7 +50,7 @@ public class ControlFlowInterpreterTests
         });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(15.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(15.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class ControlFlowInterpreterTests
         });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(15.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(15.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public class ControlFlowInterpreterTests
         });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(0.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(0.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     // ── TFORCALL + TFORLOOP (generic for-in) ──────────────────────────
@@ -162,7 +162,7 @@ public class ControlFlowInterpreterTests
         });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(15.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(15.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     // ── VARARG ────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ public class ControlFlowInterpreterTests
         }, innerPrototypes: new[] { innerProto });
 
         var result = Interpreter.Call(outerProto, Context());
-        Assert.Equal(20.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(20.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public class ControlFlowInterpreterTests
         }, innerPrototypes: new[] { innerProto });
 
         var result = Interpreter.Call(outerProto, Context());
-        Assert.IsType<LuaNil>(result);
+        Assert.IsType<LuaNil>(result.First);
     }
 
     [Fact]
@@ -277,6 +277,6 @@ public class ControlFlowInterpreterTests
         }, innerPrototypes: new[] { innerProto });
 
         var result = Interpreter.Call(outerProto, Context());
-        Assert.Equal(20.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(20.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 }

@@ -39,7 +39,7 @@ public class CallInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { doubleFunc, new LuaNumber(21) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class CallInterpreterTests
         }, maxRegSize: 3, constants: new LuaValue[] { addFunc, new LuaNumber(10), new LuaNumber(32) });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class CallInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { noop });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaNil>(result);
+        Assert.IsType<LuaNil>(result.First);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class CallInterpreterTests
         }, maxRegSize: 3, constants: new LuaValue[] { innerFunc, new LuaNumber(10), new LuaNumber(32) });
 
         var result = Interpreter.Call(outerProto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public class CallInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { level2Func, level3Func });
 
         var result = Interpreter.Call(level1, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -174,7 +174,7 @@ public class CallInterpreterTests
         }, maxRegSize: 2, constants: new LuaValue[] { asyncFunc, new LuaNumber(14) });
 
         var result = Interpreter.CallAsync(proto, Context()).GetAwaiter().GetResult();
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     // ── CALL edge cases ────────────────────────────────────────────────
@@ -192,7 +192,7 @@ public class CallInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { func });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -209,7 +209,7 @@ public class CallInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { func });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.IsType<LuaCallbackFunction>(result);
+        Assert.IsType<LuaCallbackFunction>(result.First);
     }
 
     [Fact]
@@ -226,7 +226,7 @@ public class CallInterpreterTests
         }, maxRegSize: 1, constants: new LuaValue[] { func });
 
         var result = Interpreter.Call(proto, Context());
-        Assert.Equal(10.0, Assert.IsType<LuaNumber>(result).Value);
+        Assert.Equal(10.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
     [Fact]
@@ -245,7 +245,7 @@ public class CallInterpreterTests
 
         var result = Interpreter.Call(proto, Context());
         // 3rd result is nil (padded).
-        Assert.IsType<LuaNil>(result);
+        Assert.IsType<LuaNil>(result.First);
     }
 
     [Fact]
