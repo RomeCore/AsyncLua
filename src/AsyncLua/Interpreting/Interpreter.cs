@@ -48,16 +48,13 @@ namespace AsyncLua.Interpreting
             if (maxStackSize <= 0)
                 throw new ArgumentException("Max stack size must be greater than zero.", nameof(maxStackSize));
 
-            var callStack = new CallStackFrame[maxStackSize];
-            int sp = 0;
+            var callStack = new Stack<CallStackFrame>();
             int pc = 0;
             var lockedObjects = new Stack<object>();
             var globals = context.Globals;
 
-
-			callStack[0] = new CallStackFrame(function, returnPC: -1);
-            var frame = callStack[0];
-            var registers = frame.Registers;
+            var frame = new CallStackFrame(function, returnPC: -1);
+			var registers = frame.Registers;
             var constants = frame.Function.Constants;
             var instructions = frame.Function.Instructions;
 
@@ -494,11 +491,11 @@ namespace AsyncLua.Interpreting
                                 if (func is LuaNativeFunction nativeFunc)
                                 {
                                     // Push a new call frame for bytecode execution.
-                                    sp++;
-                                    if (sp >= maxStackSize)
+                                    if (callStack.Count >= maxStackSize)
                                         throw new LuaRuntimeException("Call stack overflow.");
 
-                                    var newFrame = new CallStackFrame(
+									callStack.Push(frame);
+									var newFrame = new CallStackFrame(
                                         nativeFunc.Prototype,
                                         returnPC: pc,
                                         resultBase: inst.A,
@@ -506,7 +503,6 @@ namespace AsyncLua.Interpreting
                                     {
                                         Closure = nativeFunc
                                     };
-                                    callStack[sp] = newFrame;
 
                                     // Copy arguments to new frame registers.
                                     var newRegs = newFrame.Registers;
@@ -565,9 +561,9 @@ namespace AsyncLua.Interpreting
                         case OpCode.RETURN:
                             {
                                 int resultCount = inst.B;
-								    pc++;
+								pc++;
 
-								    if (sp > 0)
+								if (callStack.Count > 0)
                                 {
                                     // Close all open upvalues in the current frame.
                                     if (frame.OpenUpvalues != null)
@@ -577,8 +573,8 @@ namespace AsyncLua.Interpreting
                                     }
 
                                     // Return to caller frame.
-                                    var currentFrame = callStack[sp];
-                                    var callerFrame = callStack[sp - 1];
+                                    var currentFrame = frame;
+                                    var callerFrame = callStack.Pop();
 
                                     // Copy results to caller's registers (using callee's stored result info).
                                     int destBase = currentFrame.ResultBase;
@@ -590,7 +586,6 @@ namespace AsyncLua.Interpreting
                                         callerFrame.Registers[destBase + i] = LuaNil.Instance;
 
                                     // Restore caller state.
-                                    sp--;
                                     frame = callerFrame;
                                     registers = callerFrame.Registers;
                                     constants = callerFrame.Function.Constants;

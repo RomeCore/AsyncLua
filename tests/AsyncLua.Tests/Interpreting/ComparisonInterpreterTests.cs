@@ -5,8 +5,6 @@ namespace AsyncLua.Tests.Interpreting;
 
 public class ComparisonInterpreterTests
 {
-    private readonly Interpreter _interpreter = new();
-
     /// <summary>
     /// Creates a simple function prototype with the given instructions, constants, and register count.
     /// </summary>
@@ -34,7 +32,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -48,7 +46,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(99) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.False, result);
     }
 
@@ -62,7 +60,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("hello"), new LuaString("hello") });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -76,7 +74,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("hello"), new LuaString("world") });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.False, result);
     }
 
@@ -90,7 +88,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaString("42") });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.False, result);
     }
 
@@ -104,7 +102,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 3);
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -118,7 +116,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { LuaBoolean.True, LuaBoolean.True });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -134,7 +132,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -148,7 +146,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(99), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.False, result);
     }
 
@@ -162,7 +160,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.False, result);
     }
 
@@ -176,7 +174,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("abc"), new LuaString("abd") });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -190,7 +188,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("abc"), new LuaString("abc") });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.False, result);
     }
 
@@ -204,7 +202,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaString("hello") });
 
-        Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Context()));
+        Assert.Throws<LuaRuntimeException>(() => Interpreter.Call(proto, Context()));
     }
 
     // ── Less-than-or-equal ────────────────────────────────────────────
@@ -219,7 +217,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -233,7 +231,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -247,7 +245,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(99), new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.False, result);
     }
 
@@ -261,7 +259,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaString("abc"), new LuaString("abc") });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(LuaBoolean.True, result);
     }
 
@@ -275,7 +273,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaString("hello") });
 
-        Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Context()));
+        Assert.Throws<LuaRuntimeException>(() => Interpreter.Call(proto, Context()));
     }
 
     // ── Boolean result type ───────────────────────────────────────────
@@ -289,7 +287,7 @@ public class ComparisonInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(1), new LuaNumber(2) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.IsType<LuaBoolean>(result);
     }
 }

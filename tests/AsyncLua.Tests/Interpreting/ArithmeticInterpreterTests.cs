@@ -5,8 +5,6 @@ namespace AsyncLua.Tests.Interpreting;
 
 public class ArithmeticInterpreterTests
 {
-    private readonly Interpreter _interpreter = new();
-
     /// <summary>
     /// Creates a simple function prototype with the given instructions, constants, and register count.
     /// </summary>
@@ -34,7 +32,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 2);
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         // R[0] = R[1] (nil), returns R[0] = nil
         Assert.IsType<LuaNil>(result);
     }
@@ -49,7 +47,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         var num = Assert.IsType<LuaNumber>(result);
         Assert.Equal(42.0, num.Value);
     }
@@ -66,7 +64,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaNumber(32) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         var num = Assert.IsType<LuaNumber>(result);
         Assert.Equal(42.0, num.Value);
     }
@@ -81,7 +79,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(100), new LuaNumber(58) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         var num = Assert.IsType<LuaNumber>(result);
         Assert.Equal(42.0, num.Value);
     }
@@ -96,7 +94,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(6), new LuaNumber(7) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         var num = Assert.IsType<LuaNumber>(result);
         Assert.Equal(42.0, num.Value);
     }
@@ -111,7 +109,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(84), new LuaNumber(2) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         var num = Assert.IsType<LuaNumber>(result);
         Assert.Equal(42.0, num.Value);
     }
@@ -126,7 +124,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(85), new LuaNumber(2) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         var num = Assert.IsType<LuaNumber>(result);
         Assert.Equal(42.0, num.Value);
     }
@@ -141,7 +139,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(-85), new LuaNumber(2) });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         var num = Assert.IsType<LuaNumber>(result);
         Assert.Equal(-43.0, num.Value);
     }
@@ -179,7 +177,7 @@ public class ArithmeticInterpreterTests
             new LuaNumber(2),   // K[3]
         });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         var num = Assert.IsType<LuaNumber>(result);
         Assert.Equal(43.0, num.Value);
     }
@@ -196,7 +194,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(10), new LuaString("hello") });
 
-        Assert.Throws<LuaRuntimeException>(() => _interpreter.Call(proto, Context()));
+        Assert.Throws<LuaRuntimeException>(() => Interpreter.Call(proto, Context()));
     }
 
     [Fact]
@@ -207,7 +205,7 @@ public class ArithmeticInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 0, c: 0, flags: OpFlags.None),
         }, maxRegSize: 1);
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.IsType<LuaNil>(result);
     }
 }

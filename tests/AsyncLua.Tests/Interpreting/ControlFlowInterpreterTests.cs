@@ -5,8 +5,6 @@ namespace AsyncLua.Tests.Interpreting;
 
 public class ControlFlowInterpreterTests
 {
-    private readonly Interpreter _interpreter = new();
-
     private static FunctionPrototype MakeProto(
         Instruction[] instructions,
         int maxRegSize = 1,
@@ -51,7 +49,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(0),  // K[3] = sum init
         });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(15.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -77,7 +75,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(0),   // K[3]
         });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(15.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -103,7 +101,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(0),   // K[3]
         });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(0.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -163,7 +161,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(0),   // K[2]
         });
 
-        var result = _interpreter.Call(proto, Context());
+        var result = Interpreter.Call(proto, Context());
         Assert.Equal(15.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -206,7 +204,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(40),  // K[3]
         }, innerPrototypes: new[] { innerProto });
 
-        var result = _interpreter.Call(outerProto, Context());
+        var result = Interpreter.Call(outerProto, Context());
         Assert.Equal(20.0, Assert.IsType<LuaNumber>(result).Value);
     }
 
@@ -240,7 +238,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(1),   // K[0]
         }, innerPrototypes: new[] { innerProto });
 
-        var result = _interpreter.Call(outerProto, Context());
+        var result = Interpreter.Call(outerProto, Context());
         Assert.IsType<LuaNil>(result);
     }
 
@@ -278,7 +276,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(30),  // K[2]
         }, innerPrototypes: new[] { innerProto });
 
-        var result = _interpreter.Call(outerProto, Context());
+        var result = Interpreter.Call(outerProto, Context());
         Assert.Equal(20.0, Assert.IsType<LuaNumber>(result).Value);
     }
 }
