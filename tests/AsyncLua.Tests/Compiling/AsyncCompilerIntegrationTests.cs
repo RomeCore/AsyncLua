@@ -267,22 +267,53 @@ public class AsyncCompilerIntegrationTests
     [Fact]
     public async Task AsyncCall_ConcurrentExecution_OverlapsInTime()
     {
-        var barrier = new TaskCompletionSource<bool>();
+        async Task Execute(string code)
+		{
+			var barrier = new TaskCompletionSource<bool>();
 
-        async Task<LuaTuple> DelayedFunc(LuaCallingContext ctx, LuaValue[] args)
-        {
-            await barrier.Task;
-            await Task.Delay(100);
-            return new LuaTuple(new LuaNumber(((LuaNumber)args[0]).Value * 2));
-        }
+			async Task<LuaTuple> DelayedFunc(LuaCallingContext ctx, LuaValue[] args)
+			{
+				await barrier.Task;
+				await Task.Delay(100);
+				return new LuaTuple(new LuaNumber(((LuaNumber)args[0]).Value * 2));
+			}
 
-        var state = new LuaState();
-        state.Register("delayed", new LuaCallbackFunction(
-            new LuaCallbackFunction.AsyncCallbackDelegate(DelayedFunc)));
+			var state = new LuaState();
+			state.Register("delayed", new LuaCallbackFunction(
+				new LuaCallbackFunction.AsyncCallbackDelegate(DelayedFunc)));
 
-        var ctx = state.CreateContext();
+			var ctx = state.CreateContext();
 
-        var code = @"
+			var parser = new AsyncLuaParser();
+			var block = parser.Parse(code);
+			var prototype = Compiler.Compile(block, "test");
+
+			var executeTask = Interpreter.CallAsync(prototype, ctx);
+			await Task.Delay(50);
+
+			// Both tasks pending — non-blocking calls.
+			var t1 = Assert.IsType<LuaTask>(ctx.Globals.Get(new LuaString("t1")));
+			var t2 = Assert.IsType<LuaTask>(ctx.Globals.Get(new LuaString("t2")));
+			Assert.Equal(LuaTaskStatus.Pending, t1.Status);
+			Assert.Equal(LuaTaskStatus.Pending, t2.Status);
+
+			// Release barrier — both 100ms delays run concurrently.
+			var sw = System.Diagnostics.Stopwatch.StartNew();
+			barrier.SetResult(true);
+
+			var result = await executeTask;
+			sw.Stop();
+
+			Assert.Equal(2, result.Count);
+			Assert.Equal(20.0, Assert.IsType<LuaNumber>(result[0]).Value);
+			Assert.Equal(40.0, Assert.IsType<LuaNumber>(result[1]).Value);
+
+			// Concurrent: total < 200ms (would be 200ms+ if sequential).
+			Assert.True(sw.ElapsedMilliseconds < 200,
+				$"Expected concurrent execution (< 200ms), took {sw.ElapsedMilliseconds}ms");
+		}
+
+        await Execute(@"
             local t1 = delayed(10)
             local t2 = delayed(20)
             _G['t1'] = t1
@@ -290,36 +321,17 @@ public class AsyncCompilerIntegrationTests
             local r1 = await t1
             local r2 = await t2
             return r1, r2
-        ";
+        ");
 
-        var parser = new AsyncLuaParser();
-        var block = parser.Parse(code);
-        var prototype = Compiler.Compile(block, "test");
-
-        var executeTask = Interpreter.CallAsync(prototype, ctx);
-        await Task.Delay(50);
-
-        // Both tasks pending — non-blocking calls.
-        var t1 = Assert.IsType<LuaTask>(ctx.Globals.Get(new LuaString("t1")));
-        var t2 = Assert.IsType<LuaTask>(ctx.Globals.Get(new LuaString("t2")));
-        Assert.Equal(LuaTaskStatus.Pending, t1.Status);
-        Assert.Equal(LuaTaskStatus.Pending, t2.Status);
-
-        // Release barrier — both 100ms delays run concurrently.
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        barrier.SetResult(true);
-
-        var result = await executeTask;
-        sw.Stop();
-
-        Assert.Equal(2, result.Count);
-        Assert.Equal(20.0, Assert.IsType<LuaNumber>(result[0]).Value);
-        Assert.Equal(40.0, Assert.IsType<LuaNumber>(result[1]).Value);
-
-        // Concurrent: total < 200ms (would be 200ms+ if sequential).
-        Assert.True(sw.ElapsedMilliseconds < 200,
-            $"Expected concurrent execution (< 200ms), took {sw.ElapsedMilliseconds}ms");
-    }
+		await Execute(@"
+            local t1 = delayed(10)
+            local t2 = delayed(20)
+            _G['t1'] = t1
+            _G['t2'] = t2
+            local a1, a2 = await t1, t2
+            return a1, a2
+        ");
+	}
 
     // ═══════════════════════════════════════════════════════════════
     // Complex scenario: async + tables (lock omitted due to thread-affinity)

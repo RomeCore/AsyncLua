@@ -1,15 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.Text;
 using AsyncLua.Parsing.Statements;
 
 namespace AsyncLua.Parsing.Expressions
 {
-    /// <summary>
-    /// Represents a function expression in Lua (anonymous function):
-    /// <c>function(params) body end</c>.
-    /// </summary>
-    public class FunctionDeclExpressionNode : ExpressionNode
+	/// <summary>
+	/// Represents a function expression in Lua (anonymous function):
+	/// <c>function(params) body end</c>.
+	/// </summary>
+	public class FunctionDeclExpressionNode : ExpressionNode
 	{
 		/// <summary>
 		/// Gets or sets a value indicating whether this function is declared as async.
@@ -22,15 +19,15 @@ namespace AsyncLua.Parsing.Expressions
 		/// </summary>
 		public ParameterNode[] Parameters { get; set; } = [];
 
-        /// <summary>
-        /// Gets or sets a value indicating whether this function has a vararg (<c>...</c>) parameter.
-        /// </summary>
-        public bool HasVarArg { get; set; }
+		/// <summary>
+		/// Gets or sets a value indicating whether this function has a vararg (<c>...</c>) parameter.
+		/// </summary>
+		public bool HasVarArg { get; set; }
 
-        /// <summary>
-        /// Gets or sets the function body.
-        /// </summary>
-        public BlockNode Body { get; set; } = null!;
-    }
+		/// <summary>
+		/// Gets or sets the function body.
+		/// </summary>
+		public BlockNode Body { get; set; } = null!;
+	}
 }
 

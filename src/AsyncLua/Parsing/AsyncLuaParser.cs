@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using AsyncLua.Parsing.Expressions;
 using AsyncLua.Parsing.Statements;
 using AsyncLua.Values;
 using RCParsing;
-using RCParsing.Building;
 
 namespace AsyncLua.Parsing
 {
@@ -538,10 +536,10 @@ namespace AsyncLua.Parsing
 
 			builder.CreateRule("block")
 				.ZeroOrMoreSeparated(b => b.Rule("statement"), s => s.OneOrMore(b => b.Rule("statement_separator")))
-                .Transform(v => new BlockNode
-                {
-                    Statements = v.SelectValues<StatementNode>().ToArray()
-                });
+				.Transform(v => new BlockNode
+				{
+					Statements = v.SelectValues<StatementNode>().ToArray()
+				});
 
 			// ── L-value (left-hand side of assignment) ────────────────
 

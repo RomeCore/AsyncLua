@@ -2,34 +2,34 @@ using RCParsing.TokenPatterns;
 
 namespace AsyncLua.Parsing
 {
-    /// <summary>
-    /// Implements Lua-compatible string escaping logic for use with RCParsing.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Supports the following escape sequences:
-    /// <list type="bullet">
-    ///   <item><description><c>\a</c> — bell (alert).</description></item>
-    ///   <item><description><c>\b</c> — backspace.</description></item>
-    ///   <item><description><c>\f</c> — form feed.</description></item>
-    ///   <item><description><c>\n</c> — newline.</description></item>
-    ///   <item><description><c>\r</c> — carriage return.</description></item>
-    ///   <item><description><c>\t</c> — horizontal tab.</description></item>
-    ///   <item><description><c>\v</c> — vertical tab.</description></item>
-    ///   <item><description><c>\\</c> — backslash.</description></item>
-    ///   <item><description><c>\"</c> — double quote.</description></item>
-    ///   <item><description><c>\'</c> — single quote.</description></item>
-    ///   <item><description><c>\xHH</c> — hex escape (two hex digits, Lua 5.2+).</description></item>
-    ///   <item><description><c>\u{HHHH}</c> — Unicode escape (Lua 5.3+).</description></item>
-    ///   <item><description><c>\ddd</c> — decimal escape (up to 3 digits, value modulo 256).</description></item>
-    ///   <item><description><c>\&lt;newline&gt;</c> — escaped newline (ignored).</description></item>
-    /// </list>
-    /// </para>
-    /// <para>
-    /// Unrecognised escape sequences are treated as the literal character following the backslash
-    /// (standard Lua behaviour).
-    /// </para>
-    /// </remarks>
+	/// <summary>
+	/// Implements Lua-compatible string escaping logic for use with RCParsing.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// Supports the following escape sequences:
+	/// <list type="bullet">
+	///   <item><description><c>\a</c> — bell (alert).</description></item>
+	///   <item><description><c>\b</c> — backspace.</description></item>
+	///   <item><description><c>\f</c> — form feed.</description></item>
+	///   <item><description><c>\n</c> — newline.</description></item>
+	///   <item><description><c>\r</c> — carriage return.</description></item>
+	///   <item><description><c>\t</c> — horizontal tab.</description></item>
+	///   <item><description><c>\v</c> — vertical tab.</description></item>
+	///   <item><description><c>\\</c> — backslash.</description></item>
+	///   <item><description><c>\"</c> — double quote.</description></item>
+	///   <item><description><c>\'</c> — single quote.</description></item>
+	///   <item><description><c>\xHH</c> — hex escape (two hex digits, Lua 5.2+).</description></item>
+	///   <item><description><c>\u{HHHH}</c> — Unicode escape (Lua 5.3+).</description></item>
+	///   <item><description><c>\ddd</c> — decimal escape (up to 3 digits, value modulo 256).</description></item>
+	///   <item><description><c>\&lt;newline&gt;</c> — escaped newline (ignored).</description></item>
+	/// </list>
+	/// </para>
+	/// <para>
+	/// Unrecognised escape sequences are treated as the literal character following the backslash
+	/// (standard Lua behaviour).
+	/// </para>
+	/// </remarks>
 
 	public class AsyncLuaStringEscapingStrategy : EscapingStrategy
 	{

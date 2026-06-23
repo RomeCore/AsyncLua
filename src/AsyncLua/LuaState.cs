@@ -4,113 +4,113 @@ using AsyncLua.Values;
 
 namespace AsyncLua
 {
-    /// <summary>
-    /// Represents the main Lua runtime state, holding the global environment table
-    /// and serving as the root for all execution within a single Lua universe.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Each <see cref="LuaState"/> is an isolated Lua universe with its own global
-    /// table and registered functions. Multiple states can coexist and are
-    /// independently thread-safe (no shared mutable state between states).
-    /// </para>
-    /// </remarks>
-    public class LuaState
-    {
-        /// <summary>
-        /// Gets the global environment table (_G) for this Lua state.
-        /// </summary>
-        public LuaTable Globals { get; }
+	/// <summary>
+	/// Represents the main Lua runtime state, holding the global environment table
+	/// and serving as the root for all execution within a single Lua universe.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// Each <see cref="LuaState"/> is an isolated Lua universe with its own global
+	/// table and registered functions. Multiple states can coexist and are
+	/// independently thread-safe (no shared mutable state between states).
+	/// </para>
+	/// </remarks>
+	public class LuaState
+	{
+		/// <summary>
+		/// Gets the global environment table (_G) for this Lua state.
+		/// </summary>
+		public LuaTable Globals { get; }
 
-        /// <summary>
-        /// Initialises a new instance of the <see cref="LuaState"/> class
-        /// with an empty global table.
-        /// </summary>
-        public LuaState()
-        {
-            Globals = new LuaTable();
-            // Standard Lua: _G references the global table itself.
-            Globals.Set(new LuaString("_G"), Globals);
-        }
+		/// <summary>
+		/// Initialises a new instance of the <see cref="LuaState"/> class
+		/// with an empty global table.
+		/// </summary>
+		public LuaState()
+		{
+			Globals = new LuaTable();
+			// Standard Lua: _G references the global table itself.
+			Globals.Set(new LuaString("_G"), Globals);
+		}
 
-        /// <summary>
-        /// Registers a Lua function in the global environment under the specified name.
-        /// </summary>
-        /// <param name="name">The global variable name (e.g., "print", "http_get").</param>
-        /// <param name="function">The function to register.</param>
-        /// <exception cref="ArgumentNullException">
-        /// Thrown if <paramref name="name"/> or <paramref name="function"/> is <see langword="null"/>.
-        /// </exception>
-        public void Register(string name, LuaFunction function)
-        {
-            if (name is null)
-                throw new ArgumentNullException(nameof(name));
-            if (function is null)
-                throw new ArgumentNullException(nameof(function));
+		/// <summary>
+		/// Registers a Lua function in the global environment under the specified name.
+		/// </summary>
+		/// <param name="name">The global variable name (e.g., "print", "http_get").</param>
+		/// <param name="function">The function to register.</param>
+		/// <exception cref="ArgumentNullException">
+		/// Thrown if <paramref name="name"/> or <paramref name="function"/> is <see langword="null"/>.
+		/// </exception>
+		public void Register(string name, LuaFunction function)
+		{
+			if (name is null)
+				throw new ArgumentNullException(nameof(name));
+			if (function is null)
+				throw new ArgumentNullException(nameof(function));
 
-            Globals.Set(new LuaString(name), function);
-        }
+			Globals.Set(new LuaString(name), function);
+		}
 
-        /// <summary>
-        /// Retrieves a value from the global environment.
-        /// </summary>
-        /// <param name="name">The global variable name.</param>
-        /// <returns>The stored value, or <c>nil</c> if not found.</returns>
-        public LuaValue GetGlobal(string name)
-        {
-            return Globals.Get(new LuaString(name));
-        }
+		/// <summary>
+		/// Retrieves a value from the global environment.
+		/// </summary>
+		/// <param name="name">The global variable name.</param>
+		/// <returns>The stored value, or <c>nil</c> if not found.</returns>
+		public LuaValue GetGlobal(string name)
+		{
+			return Globals.Get(new LuaString(name));
+		}
 
-        /// <summary>
-        /// Creates a new <see cref="LuaCallingContext"/> bound to this state.
-        /// </summary>
-        /// <returns>A new calling context.</returns>
-        public LuaCallingContext CreateContext()
-        {
-            return new LuaCallingContext(this);
-        }
+		/// <summary>
+		/// Creates a new <see cref="LuaCallingContext"/> bound to this state.
+		/// </summary>
+		/// <returns>A new calling context.</returns>
+		public LuaCallingContext CreateContext()
+		{
+			return new LuaCallingContext(this);
+		}
 
-        /// <summary>
-        /// Parses, compiles and executes the specified Lua code synchronously.
-        /// </summary>
-        /// <param name="code">The Lua source code to execute.</param>
-        /// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
-        /// <returns>A <see cref="LuaTuple"/> containing all return values from the chunk.</returns>
-        /// <exception cref="ArgumentNullException">
-        /// Thrown if <paramref name="code"/> is <see langword="null"/>.
-        /// </exception>
-        public LuaTuple Execute(string code, string? sourceName = null)
-        {
-            if (code is null)
-                throw new ArgumentNullException(nameof(code));
+		/// <summary>
+		/// Parses, compiles and executes the specified Lua code synchronously.
+		/// </summary>
+		/// <param name="code">The Lua source code to execute.</param>
+		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+		/// <returns>A <see cref="LuaTuple"/> containing all return values from the chunk.</returns>
+		/// <exception cref="ArgumentNullException">
+		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
+		/// </exception>
+		public LuaTuple Execute(string code, string? sourceName = null)
+		{
+			if (code is null)
+				throw new ArgumentNullException(nameof(code));
 
-            var parser = new Parsing.AsyncLuaParser();
-            var block = parser.Parse(code);
-            var prototype = Compiling.Compiler.Compile(block, sourceName);
-            return Interpreting.Interpreter.Call(prototype, CreateContext());
-        }
+			var parser = new Parsing.AsyncLuaParser();
+			var block = parser.Parse(code);
+			var prototype = Compiling.Compiler.Compile(block, sourceName);
+			return Interpreting.Interpreter.Call(prototype, CreateContext());
+		}
 
-        /// <summary>
-        /// Parses, compiles and executes the specified Lua code asynchronously.
-        /// Required for code that uses <c>async</c>/<c>await</c>.
-        /// </summary>
-        /// <param name="code">The Lua source code to execute.</param>
-        /// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
-        /// <returns>
-        /// A task that resolves to a <see cref="LuaTuple"/> containing all return values from the chunk.
-        /// </returns>
-        /// <exception cref="ArgumentNullException">
-        /// Thrown if <paramref name="code"/> is <see langword="null"/>.
-        /// </exception>
-        public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null)
-        {
-            if (code is null)
-                throw new ArgumentNullException(nameof(code));
+		/// <summary>
+		/// Parses, compiles and executes the specified Lua code asynchronously.
+		/// Required for code that uses <c>async</c>/<c>await</c>.
+		/// </summary>
+		/// <param name="code">The Lua source code to execute.</param>
+		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+		/// <returns>
+		/// A task that resolves to a <see cref="LuaTuple"/> containing all return values from the chunk.
+		/// </returns>
+		/// <exception cref="ArgumentNullException">
+		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
+		/// </exception>
+		public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null)
+		{
+			if (code is null)
+				throw new ArgumentNullException(nameof(code));
 
-            var parser = new Parsing.AsyncLuaParser();
-            var block = parser.Parse(code);
-            var prototype = Compiling.Compiler.Compile(block, sourceName);
-            return await Interpreting.Interpreter.CallAsync(prototype, CreateContext());
-        }
-    }
+			var parser = new Parsing.AsyncLuaParser();
+			var block = parser.Parse(code);
+			var prototype = Compiling.Compiler.Compile(block, sourceName);
+			return await Interpreting.Interpreter.CallAsync(prototype, CreateContext());
+		}
+	}
 }

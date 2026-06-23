@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace AsyncLua.Parsing.Statements
+﻿namespace AsyncLua.Parsing.Statements
 {
 	/// <summary>
 	/// Represents a block of statements in Lua.
