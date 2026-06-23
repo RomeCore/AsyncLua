@@ -48,7 +48,27 @@ namespace AsyncLua.Interpreting
             return CallInternal(function, context, maxStackSize, async: true);
         }
 
-        private static async Task<LuaTuple> CallInternal(FunctionPrototype function, LuaCallingContext context, int maxStackSize, bool async)
+        /// <summary>
+        /// Executes a function prototype with pre-filled arguments and an optional closure.
+        /// Used by <see cref="LuaNativeFunction.InvokeAsync"/> and the CALL handler for async bytecode functions.
+        /// </summary>
+        internal static Task<LuaTuple> ExecuteAsync(
+            FunctionPrototype function,
+            LuaCallingContext context,
+            LuaValue[] args,
+            LuaNativeFunction? closure = null,
+            int maxStackSize = DefaultMaxStackSize)
+        {
+            return CallInternal(function, context, maxStackSize, async: true, initialArgs: args, initialClosure: closure);
+        }
+
+        private static async Task<LuaTuple> CallInternal(
+            FunctionPrototype function,
+            LuaCallingContext context,
+            int maxStackSize,
+            bool async,
+            LuaValue[]? initialArgs = null,
+            LuaNativeFunction? initialClosure = null)
         {
             if (maxStackSize <= 0)
                 throw new ArgumentException("Max stack size must be greater than zero.", nameof(maxStackSize));
@@ -58,14 +78,46 @@ namespace AsyncLua.Interpreting
             var lockedObjects = new Stack<object>();
             var globals = context.Globals;
 
-            var frame = new CallStackFrame(function, returnPC: -1);
+            var frame = new CallStackFrame(function, returnPC: -1)
+            {
+                Closure = initialClosure
+            };
 			var registers = frame.Registers;
             var constants = frame.Function.Constants;
             var instructions = frame.Function.Instructions;
 
-            // Initialise all registers to nil.
-            for (int i = 0; i < registers.Length; i++)
-                registers[i] = LuaNil.Instance;
+            // Fill registers: initial args first, then nil for the rest.
+            if (initialArgs != null)
+            {
+                int copyCount = Math.Min(initialArgs.Length, registers.Length);
+                for (int i = 0; i < copyCount; i++)
+                    registers[i] = initialArgs[i];
+                for (int i = copyCount; i < registers.Length; i++)
+                    registers[i] = LuaNil.Instance;
+
+                // Handle varargs for the initial call.
+                if (function.IsVararg)
+                {
+                    byte fixedCount = function.ParameterCount;
+                    int extraCount = initialArgs.Length - fixedCount;
+                    if (extraCount > 0)
+                    {
+                        var varArgs = new LuaValue[extraCount];
+                        for (int i = 0; i < extraCount; i++)
+                            varArgs[i] = initialArgs[fixedCount + i];
+                        frame.VarArgs = varArgs;
+                    }
+                    else
+                    {
+                        frame.VarArgs = Array.Empty<LuaValue>();
+                    }
+                }
+            }
+            else
+            {
+                for (int i = 0; i < registers.Length; i++)
+                    registers[i] = LuaNil.Instance;
+            }
 
             try
             {
@@ -499,6 +551,16 @@ namespace AsyncLua.Interpreting
                                 for (int i = 0; i < argCount; i++)
                                     args[i] = registers[inst.A + 1 + i];
 
+                                // ── Async function: launch and return a LuaTask immediately ──
+                                if (func.IsAsync)
+                                {
+                                    var csharpTask = func.InvokeAsync(context, args);
+                                    registers[inst.A] = LuaTask.FromTask(csharpTask);
+                                    // pc already advanced; execution continues without blocking.
+                                    break;
+                                }
+
+                                // ── Synchronous bytecode function ──
                                 if (func is LuaNativeFunction nativeFunc)
                                 {
                                     // Push a new call frame for bytecode execution.
@@ -551,7 +613,7 @@ namespace AsyncLua.Interpreting
                                 }
                                 else
                                 {
-                                    // C# callback function — invoke directly.
+                                    // ── Synchronous C# callback function ──
                                     LuaTuple results;
                                     if (async)
                                         results = await func.InvokeAsync(context, args);

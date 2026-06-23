@@ -68,7 +68,7 @@ namespace AsyncLua.Values
 		{
 			_callback = callback ?? throw new ArgumentNullException(nameof(callback));
 			_name = name;
-			IsAsync = false;
+			IsAsync = true;
 		}
 
 		/// <inheritdoc />

@@ -68,11 +68,11 @@ namespace AsyncLua.Values
         /// <inheritdoc />
         public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, LuaValue[] args)
         {
-            // TODO: This will create a CallFrame and invoke the Interpreter.
-            // For now, this is a placeholder.
-            throw new NotImplementedException(
-                "Execution of Lua bytecode functions is not yet implemented. " +
-                "Use the Interpreter directly for now.");
+            var effectiveContext = Environment is not null
+                ? new LuaCallingContext(context.State, Environment)
+                : context;
+
+            return Interpreter.ExecuteAsync(Prototype, effectiveContext, args, closure: this);
         }
 
         /// <inheritdoc />

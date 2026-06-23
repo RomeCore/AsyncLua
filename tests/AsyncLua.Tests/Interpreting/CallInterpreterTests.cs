@@ -156,7 +156,7 @@ public class CallInterpreterTests
     }
 
     [Fact]
-    public void Call_AsyncCallback_WorksInCallAsync()
+    public async Task Call_AsyncCallback_WorksInCallAsync()
     {
         var asyncFunc = LuaCallbackFunction.FromAsync(
             async args =>
@@ -165,15 +165,17 @@ public class CallInterpreterTests
                 return new LuaNumber(((LuaNumber)args[0]).Value * 3);
             });
 
+        // CALL asyncFunc(14) → stores LuaTask in R[0]; AWAIT R[0] → stores result; return R[0]
         var proto = MakeProto(new[]
         {
-            new Instruction(OpCode.MOVE, a: 0, b: 0, c: 0, flags: OpFlags.KB),
-            new Instruction(OpCode.MOVE, a: 1, b: 1, c: 0, flags: OpFlags.KB),
-            new Instruction(OpCode.CALL, a: 0, b: 1, c: 1, flags: OpFlags.None),
+            new Instruction(OpCode.MOVE, a: 0, b: 0, c: 0, flags: OpFlags.KB),  // R[0] = asyncFunc
+            new Instruction(OpCode.MOVE, a: 1, b: 1, c: 0, flags: OpFlags.KB),  // R[1] = 14
+            new Instruction(OpCode.CALL, a: 0, b: 1, c: 1, flags: OpFlags.None), // R[0] = LuaTask (non-blocking)
+            new Instruction(OpCode.AWAIT, a: 0, b: 0, c: 1, flags: OpFlags.None), // await R[0] → R[0] = 42
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
         }, maxRegSize: 2, constants: new LuaValue[] { asyncFunc, new LuaNumber(14) });
 
-        var result = Interpreter.CallAsync(proto, Context()).GetAwaiter().GetResult();
+        var result = await Interpreter.CallAsync(proto, Context());
         Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
     }
 
