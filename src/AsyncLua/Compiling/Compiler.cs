@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Xml.Linq;
 using AsyncLua.Interpreting;
+using AsyncLua.Parsing;
 using AsyncLua.Parsing.Expressions;
 using AsyncLua.Parsing.Statements;
 using AsyncLua.Values;
@@ -25,6 +27,8 @@ namespace AsyncLua.Compiling
 	/// </remarks>
 	public class Compiler
 	{
+		private readonly CompilerSettings _settings;
+
 		// ── Output ──────────────────────────────────────────────────────
 
 		private readonly List<Instruction> _instructions = new();
@@ -63,9 +67,10 @@ namespace AsyncLua.Compiling
 		/// <param name="block">The root AST block (usually the result of <see cref="Parsing.AsyncLuaParser.Parse"/>).</param>
 		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
 		/// <returns>A compiled function prototype ready for execution.</returns>
-		public static FunctionPrototype Compile(BlockNode block, string? sourceName = null)
+		public static FunctionPrototype Compile(BlockNode block, CompilerSettings? settings = null, string? sourceName = null)
 		{
-			var compiler = new Compiler(parent: null, isAsync: false, parameterCount: 0,
+			settings ??= new CompilerSettings();
+			var compiler = new Compiler(settings, parent: null, isAsync: false, parameterCount: 0,
 				isVararg: false, sourceName: sourceName);
 			compiler.CompileBlock(block);
 			compiler.EmitReturn(); // implicit return at end of chunk
@@ -76,12 +81,14 @@ namespace AsyncLua.Compiling
 		// ── Constructor ─────────────────────────────────────────────────
 
 		private Compiler(
+			CompilerSettings settings,
 			Compiler? parent,
 			bool isAsync,
 			int parameterCount,
 			bool isVararg,
 			string? sourceName)
 		{
+			_settings = settings;
 			_parent = parent;
 			_isAsync = isAsync;
 			_parameterCount = parameterCount;
@@ -104,6 +111,7 @@ namespace AsyncLua.Compiling
 			switch (stmt)
 			{
 				case AssignmentNode assign: CompileAssignment(assign); break;
+				case AugassignmentNode augassign: CompileAugassignment(augassign); break;
 				case CallStatementNode callStmt: CompileCallStatement(callStmt); break;
 				case ReturnNode ret: CompileReturn(ret); break;
 				case IfNode ifNode: CompileIf(ifNode); break;
@@ -111,23 +119,9 @@ namespace AsyncLua.Compiling
 				case RepeatNode repeatNode: CompileRepeat(repeatNode); break;
 				case ForNumericNode forNum: CompileForNumeric(forNum); break;
 				case ForInNode forIn: CompileForIn(forIn); break;
-				case DoNode doNode:
-					{
-						// Save locals to provide a new scope for the block.
-						var savedLocals = new Dictionary<string, int>(_locals);
-						CompileBlock(doNode.Body);
-						// Restore locals: remove newly introduced names, restore overwritten old values.
-						var keysToRemove = new List<string>();
-						foreach (var k in _locals.Keys)
-							if (!savedLocals.ContainsKey(k))
-								keysToRemove.Add(k);
-						foreach (var key in keysToRemove)
-							_locals.Remove(key);
-						foreach (var kv in savedLocals)
-							_locals[kv.Key] = kv.Value;
-						break;
-					}
+				case DoNode doNode: CompileDo(doNode); break;
 				case BreakNode: CompileBreak(); break;
+				case ContinueNode: CompileContinue(); break;
 				case GotoNode gotoNode: CompileGoto(gotoNode); break;
 				case LabelNode labelNode: CompileLabel(labelNode); break;
 				case FunctionDeclStatementNode funcDecl: CompileFunctionDeclaration(funcDecl); break;
@@ -171,7 +165,7 @@ namespace AsyncLua.Compiling
 				var target = node.Targets[i];
 				if (target is IdentifierNode ident)
 				{
-					if (node.Scope == VariableScope.Local)
+					if (node.Scope == VariableScope.Local || (node.Scope == null && _settings.IsLocalByDefault))
 					{
 						// local x = ...
 						_locals[ident.Name] = srcReg;
@@ -212,6 +206,83 @@ namespace AsyncLua.Compiling
 			// Note: _nextRegister is monotonic — temporary registers used during
 			// expression compilation are not freed. MaxRegSize covers all registers
 			// ever allocated for this function.
+		}
+
+		// ── Augmented assignment ─────────────────────────────────────────
+
+		private void CompileAugassignment(AugassignmentNode node)
+		{
+			OpCode op = BinaryOpToOpCode(node.Operator);
+
+			if (node.Left is IdentifierNode ident)
+			{
+				// ── Simple variable: x op= expr ─────────────────────
+				//
+				//   varReg = current value of x   (register or GETGLOBAL/GETUPVAL)
+				//   rightReg = expr
+				//   R[varReg] = R[varReg] op R[rightReg]
+				//   write varReg back to x
+
+				if (_locals.TryGetValue(ident.Name, out int localReg))
+				{
+					// Local variable — value is already in the register.
+					int rightReg = AllocateRegister();
+					CompileExpression(node.Right, rightReg);
+					Emit(op, localReg, localReg, rightReg);
+				}
+				else
+				{
+					int? upvalueIndex = ResolveUpvalue(ident.Name);
+					if (upvalueIndex.HasValue)
+					{
+						// Upvalue — read, modify, write back.
+						int valueReg = AllocateRegister();
+						Emit(OpCode.GETUPVAL, valueReg, upvalueIndex.Value);
+						int rightReg = AllocateRegister();
+						CompileExpression(node.Right, rightReg);
+						Emit(op, valueReg, valueReg, rightReg);
+						Emit(OpCode.SETUPVAL, upvalueIndex.Value, valueReg);
+					}
+					else
+					{
+						// Global variable.
+						int keyIndex = GetConstantIndex(new LuaString(ident.Name));
+						int valueReg = AllocateRegister();
+						Emit(OpCode.GETGLOBAL, valueReg, keyIndex, flags: OpFlags.KB);
+						int rightReg = AllocateRegister();
+						CompileExpression(node.Right, rightReg);
+						Emit(op, valueReg, valueReg, rightReg);
+						EmitSETGLOBAL(ident.Name, valueReg);
+					}
+				}
+			}
+			else if (node.Left is IndexNode index)
+			{
+				// ── Table element: t[i] op= expr ────────────────────
+				//
+				//   tableReg = t
+				//   indexReg = i
+				//   valueReg = t[i]
+				//   rightReg = expr
+				//   R[valueReg] = R[valueReg] op R[rightReg]
+				//   t[i] = valueReg
+
+				int tableReg = AllocateRegister();
+				CompileExpression(index.Target, tableReg);
+				int indexReg = AllocateRegister();
+				CompileExpression(index.Index, indexReg);
+				int valueReg = AllocateRegister();
+				Emit(OpCode.GETTABLE, valueReg, tableReg, indexReg);
+				int rightReg = AllocateRegister();
+				CompileExpression(node.Right, rightReg);
+				Emit(op, valueReg, valueReg, rightReg);
+				Emit(OpCode.SETTABLE, tableReg, indexReg, valueReg);
+			}
+			else
+			{
+				throw new CompilerException(
+					$"Augmented assignment target must be an identifier or index, got {node.Left.GetType().Name}.");
+			}
 		}
 
 		// ── Call statement ──────────────────────────────────────────────
@@ -459,7 +530,25 @@ namespace AsyncLua.Compiling
 			MarkLabel(loopEnd);
 		}
 
-		// ── Break ───────────────────────────────────────────────────────
+		// ── Do ─────────────────────────────────────────────────────────
+
+		private void CompileDo(DoNode node)
+		{
+			// Save locals to provide a new scope for the block.
+			var savedLocals = new Dictionary<string, int>(_locals);
+			CompileBlock(node.Body);
+			// Restore locals: remove newly introduced names, restore overwritten old values.
+			var keysToRemove = new List<string>();
+			foreach (var k in _locals.Keys)
+				if (!savedLocals.ContainsKey(k))
+					keysToRemove.Add(k);
+			foreach (var key in keysToRemove)
+				_locals.Remove(key);
+			foreach (var kv in savedLocals)
+				_locals[kv.Key] = kv.Value;
+		}
+
+		// ── Break / Continue ────────────────────────────────────────────
 
 		private void CompileBreak()
 		{
@@ -468,6 +557,15 @@ namespace AsyncLua.Compiling
 
 			var loop = _loopStack.Peek();
 			EmitJMP_Label(loop.ExitLabel);
+		}
+
+		private void CompileContinue()
+		{
+			if (_loopStack.Count == 0)
+				throw new CompilerException("<continue> statement outside of a loop.");
+
+			var loop = _loopStack.Peek();
+			EmitJMP_Label(loop.ContinueLabel);
 		}
 
 		// ── Goto / Label ────────────────────────────────────────────────
@@ -488,7 +586,7 @@ namespace AsyncLua.Compiling
 		{
 			// For local functions, pre-register the name so recursive calls work.
 			int closureReg = -1;
-			if (node.Scope == VariableScope.Local)
+			if (node.Scope == VariableScope.Local || (node.Scope == null && _settings.IsLocalByDefault))
 			{
 				closureReg = AllocateRegister();
 				_locals[node.Name] = closureReg;
@@ -498,6 +596,7 @@ namespace AsyncLua.Compiling
 			}
 
 			var childCompiler = new Compiler(
+				_settings,
 				parent: this,
 				isAsync: node.IsAsync,
 				parameterCount: node.Parameters.Length,
@@ -517,7 +616,7 @@ namespace AsyncLua.Compiling
 			int protoIndex = _innerPrototypes.Count;
 			_innerPrototypes.Add(innerProto);
 
-			if (node.Scope == VariableScope.Local)
+			if (node.Scope == VariableScope.Local || (node.Scope == null && _settings.IsLocalByDefault))
 			{
 				// Reuse the pre-allocated register.
 				EmitCLOSURE(closureReg, (ushort)protoIndex);
@@ -819,6 +918,7 @@ namespace AsyncLua.Compiling
 		private void CompileFunctionExpression(FunctionDeclExpressionNode node, int destReg)
 		{
 			var childCompiler = new Compiler(
+				_settings,
 				parent: this,
 				isAsync: node.IsAsync,
 				parameterCount: node.Parameters.Length,

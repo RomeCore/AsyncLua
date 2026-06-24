@@ -8,6 +8,9 @@ namespace AsyncLua.Parsing.Expressions
 		/// <summary>Arithmetic negation (<c>-x</c>).</summary>
 		Minus,
 
+		/// <summary>Bitwise NOT operator (<c>~x</c>).</summary>
+		BitInvert,
+
 		/// <summary>Logical negation (<c>not x</c>).</summary>
 		LogicalNot,
 

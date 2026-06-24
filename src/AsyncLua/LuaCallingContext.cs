@@ -24,7 +24,7 @@ namespace AsyncLua
 		/// <summary>
 		/// Gets the global environment table for the current call.
 		/// This is typically <see cref="LuaState.Globals"/> but may be overridden
-		/// per-closure in the future (for _ENV support).
+		/// per-closure (_ENV).
 		/// </summary>
 		public LuaTable Globals { get; }
 

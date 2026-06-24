@@ -774,11 +774,11 @@ public class CompilerIntegrationAdvancedTests
 		var ctx = state.CreateContext();
 
 		Interpreter.Call(
-			Compiler.Compile(new AsyncLuaParser().Parse("counter = 100"), "test"),
+			Compiler.Compile(new AsyncLuaParser().Parse("counter = 100"), sourceName: "test"),
 			ctx);
 
 		var result = Interpreter.Call(
-			Compiler.Compile(new AsyncLuaParser().Parse("return counter"), "test"),
+			Compiler.Compile(new AsyncLuaParser().Parse("return counter"), sourceName: "test"),
 			ctx);
 
 		Assert.Equal(100.0, Assert.IsType<LuaNumber>(result.First).Value);

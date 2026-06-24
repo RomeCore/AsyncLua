@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
@@ -19,14 +20,12 @@ namespace AsyncLua.Values
 	/// Tables are compared by reference identity, not by content (unless a <c>__eq</c>
 	/// metamethod is provided in the metatable).
 	/// </para>
-	/// <para>
-	/// This implementation is <b>not thread-safe</b>. Concurrent access must be synchronised
-	/// externally (typically by the owning <c>LuaState</c>).
-	/// </para>
 	/// </remarks>
 	public sealed class LuaTable : LuaValue, IEnumerable<KeyValuePair<LuaValue, LuaValue>>
 	{
-		private readonly Dictionary<LuaValue, LuaValue> _entries;
+		private const int DefaultConcurrencyLevel = 4;
+
+		private readonly ConcurrentDictionary<LuaValue, LuaValue> _entries;
 		private LuaMetatable? _metatable;
 
 		// Cached array-boundary length for the # operator; invalidated on mutation.
@@ -37,7 +36,7 @@ namespace AsyncLua.Values
 		/// </summary>
 		public LuaTable()
 		{
-			_entries = new Dictionary<LuaValue, LuaValue>(LuaValueEqualityComparer.Instance);
+			_entries = new ConcurrentDictionary<LuaValue, LuaValue>(DefaultConcurrencyLevel, [], LuaValueEqualityComparer.Instance);
 		}
 
 		/// <summary>
@@ -56,7 +55,7 @@ namespace AsyncLua.Values
 		/// <param name="capacity">The initial capacity for the underlying storage.</param>
 		public LuaTable(int capacity)
 		{
-			_entries = new Dictionary<LuaValue, LuaValue>(capacity, LuaValueEqualityComparer.Instance);
+			_entries = new ConcurrentDictionary<LuaValue, LuaValue>(DefaultConcurrencyLevel, capacity, LuaValueEqualityComparer.Instance);
 		}
 
 		// ── Indexer ──────────────────────────────────────────────────────
@@ -124,7 +123,7 @@ namespace AsyncLua.Values
 
 			if (value is LuaNil)
 			{
-				_entries.Remove(key);
+				_entries.TryRemove(key, out _);
 			}
 			else
 			{
@@ -149,7 +148,7 @@ namespace AsyncLua.Values
 		{
 			ValidateKey(key);
 			InvalidateLengthCache();
-			return _entries.Remove(key);
+			return _entries.TryRemove(key, out _);
 		}
 
 		/// <summary>
@@ -284,7 +283,7 @@ namespace AsyncLua.Values
 		/// Returns an enumerator over all key-value pairs in the table.
 		/// </summary>
 		/// <returns>A struct enumerator.</returns>
-		public Dictionary<LuaValue, LuaValue>.Enumerator GetEnumerator() => _entries.GetEnumerator();
+		public IEnumerator<KeyValuePair<LuaValue, LuaValue>> GetEnumerator() => _entries.GetEnumerator();
 
 		IEnumerator<KeyValuePair<LuaValue, LuaValue>> IEnumerable<KeyValuePair<LuaValue, LuaValue>>.GetEnumerator()
 			=> _entries.GetEnumerator();

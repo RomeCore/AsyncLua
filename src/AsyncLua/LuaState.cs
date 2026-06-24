@@ -1,6 +1,9 @@
 using System;
 using System.Threading.Tasks;
+using AsyncLua.Compiling;
+using AsyncLua.Parsing;
 using AsyncLua.Values;
+using RCParsing;
 
 namespace AsyncLua
 {
@@ -17,6 +20,9 @@ namespace AsyncLua
 	/// </remarks>
 	public class LuaState
 	{
+		private readonly AsyncLuaParser _parser;
+		private readonly CompilerSettings _compilerSettings;
+
 		/// <summary>
 		/// Gets the global environment table (_G) for this Lua state.
 		/// </summary>
@@ -28,6 +34,23 @@ namespace AsyncLua
 		/// </summary>
 		public LuaState()
 		{
+			_parser = new AsyncLuaParser();
+			_compilerSettings = new CompilerSettings();
+
+			Globals = new LuaTable();
+			// Standard Lua: _G references the global table itself.
+			Globals.Set(new LuaString("_G"), Globals);
+		}
+
+		/// <summary>
+		/// Initialises a new instance of the <see cref="LuaState"/> class
+		/// with an empty global table and provided settings.
+		/// </summary>
+		public LuaState(AsyncLuaParser? parser, CompilerSettings? compilerSettings)
+		{
+			_parser = parser ?? new AsyncLuaParser();
+			_compilerSettings = compilerSettings ?? new CompilerSettings();
+
 			Globals = new LuaTable();
 			// Standard Lua: _G references the global table itself.
 			Globals.Set(new LuaString("_G"), Globals);
@@ -84,9 +107,8 @@ namespace AsyncLua
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
 
-			var parser = new Parsing.AsyncLuaParser();
-			var block = parser.Parse(code);
-			var prototype = Compiling.Compiler.Compile(block, sourceName);
+			var block = _parser.Parse(code);
+			var prototype = Compiling.Compiler.Compile(block, sourceName: sourceName);
 			return Interpreting.Interpreter.Call(prototype, CreateContext());
 		}
 
@@ -107,9 +129,8 @@ namespace AsyncLua
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
 
-			var parser = new Parsing.AsyncLuaParser();
-			var block = parser.Parse(code);
-			var prototype = Compiling.Compiler.Compile(block, sourceName);
+			var block = _parser.Parse(code);
+			var prototype = Compiling.Compiler.Compile(block, sourceName: sourceName);
 			return await Interpreting.Interpreter.CallAsync(prototype, CreateContext());
 		}
 	}

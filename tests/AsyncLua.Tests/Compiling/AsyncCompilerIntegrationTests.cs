@@ -94,7 +94,7 @@ public class AsyncCompilerIntegrationTests
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var prototype = Compiler.Compile(block, "test");
+		var prototype = Compiler.Compile(block, sourceName: "test");
 
 		var executeTask = Interpreter.CallAsync(prototype, ctx);
 
@@ -286,7 +286,7 @@ public class AsyncCompilerIntegrationTests
 
 			var parser = new AsyncLuaParser();
 			var block = parser.Parse(code);
-			var prototype = Compiler.Compile(block, "test");
+			var prototype = Compiler.Compile(block, sourceName: "test");
 
 			var executeTask = Interpreter.CallAsync(prototype, ctx);
 			await Task.Delay(50);
@@ -449,7 +449,7 @@ public class AsyncCompilerIntegrationTests
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var proto = Compiler.Compile(block, "test");
+		var proto = Compiler.Compile(block, sourceName: "test");
 
 		var executeTask = Interpreter.CallAsync(proto, ctx);
 		await Task.Delay(50);
@@ -542,7 +542,7 @@ public class AsyncCompilerIntegrationTests
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var proto = Compiler.Compile(block, "test");
+		var proto = Compiler.Compile(block, sourceName: "test");
 
 		var executeTask = Interpreter.CallAsync(proto, ctx);
 		await Task.Delay(50);

@@ -1,4 +1,4 @@
-namespace AsyncLua.Parsing.Expressions
+namespace AsyncLua.Parsing
 {
 	/// <summary>
 	/// Enumerates the available binary operators in Lua.

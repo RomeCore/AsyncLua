@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -189,7 +190,10 @@ namespace AsyncLua.Interpreting
 						case OpCode.LOCK:
 							{
 								var lockTarget = registers[inst.A];
-								Monitor.Enter(lockTarget);
+								if (async)
+									await LuaMonitor.EnterAsync(lockTarget);
+								else
+									LuaMonitor.Enter(lockTarget);
 								lockedObjects.Push(lockTarget);
 								pc++;
 								break;
@@ -198,8 +202,7 @@ namespace AsyncLua.Interpreting
 						case OpCode.UNLOCK:
 							{
 								var lockTarget = registers[inst.A];
-								if (Monitor.IsEntered(lockTarget))
-									Monitor.Exit(lockTarget);
+								LuaMonitor.Exit(lockTarget);
 								// Remove from tracking stack (search from top).
 								if (lockedObjects.Count > 0 && ReferenceEquals(lockedObjects.Peek(), lockTarget))
 									lockedObjects.Pop();
@@ -425,7 +428,6 @@ namespace AsyncLua.Interpreting
 								pc++;
 								break;
 							}
-
 
 						case OpCode.POW:
 							{
@@ -812,8 +814,7 @@ namespace AsyncLua.Interpreting
 				while (lockedObjects.Count > 0)
 				{
 					var obj = lockedObjects.Pop();
-					if (Monitor.IsEntered(obj))
-						Monitor.Exit(obj);
+					LuaMonitor.Exit(obj);
 				}
 			}
 		}

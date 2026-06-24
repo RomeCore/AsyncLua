@@ -72,7 +72,7 @@ namespace AsyncLua.Parsing
 					"while", "do", "repeat", "until",
 					"break", "local", "global", "and",
 					"or", "not", "in", "true",
-					"false", "nil");
+					"false", "nil", "continue");
 
 			builder.CreateToken("minus")
 				.First(
@@ -90,8 +90,16 @@ namespace AsyncLua.Parsing
 				.KeywordChoice(("true", LuaBoolean.True), ("false", LuaBoolean.False), ("nil", LuaNil.Instance));
 
 			builder.CreateToken("number")
-				.Map<double>(b => b.Number<double>(RCParsing.TokenPatterns.NumberFlags.StrictUnsignedScientific),
-					d => new LuaNumber(d));
+				.LongestChoice(
+					b => b.Map<long>(b => b.IntegerNumber<long>(defaultBase: 10, baseMappings: new Dictionary<char, int> {
+						['x'] = 16,
+						['X'] = 16,
+						['b'] = 2,
+						['B'] = 2
+					}), d => new LuaNumber(d)),
+					b => b.Map<double>(b => b.Number<double>(RCParsing.TokenPatterns.NumberFlags.StrictUnsignedScientific),
+						d => new LuaNumber(d))
+				);
 
 			builder.CreateToken("string")
 				.Map<string>(b => b.Choice(
@@ -590,6 +598,10 @@ namespace AsyncLua.Parsing
 				.Keyword("break")
 				.Transform(_ => new BreakNode());
 
+			builder.CreateRule("continue_statement")
+				.Keyword("continue")
+				.Transform(_ => new ContinueNode());
+
 			builder.CreateRule("goto_statement")
 				.Keyword("goto")
 				.Token("identifier")
@@ -880,6 +892,37 @@ namespace AsyncLua.Parsing
 
 			// ── Assignment or call statement ──────────────────────────
 
+			builder.CreateRule("augassignment_statement")
+				.Rule("lvalue")
+				.LiteralChoice("+=", "-=", "*=", "/=", "//=", "%=", "^=", "..=", "<<=", ">>=", "&=", "|=", "~=")
+				.Rule("expression")
+				.Transform(v =>
+				{
+					return new AugassignmentNode
+					{
+						Left = v.GetValue<ExpressionNode>(0),
+						Right = v.GetValue<ExpressionNode>(2),
+
+						Operator = v.GetValue<string>(1) switch
+						{
+							"+=" => BinaryOperatorType.Add,
+							"-=" => BinaryOperatorType.Substract,
+							"*=" => BinaryOperatorType.Multiply,
+							"/=" => BinaryOperatorType.Divide,
+							"//=" => BinaryOperatorType.IntegerDivide,
+							"%=" => BinaryOperatorType.Modulus,
+							"^=" => BinaryOperatorType.Exponentiate,
+							"..=" => BinaryOperatorType.Concatenate,
+							"<<=" => BinaryOperatorType.BitShiftLeft,
+							">>=" => BinaryOperatorType.BitShiftRight,
+							"&=" => BinaryOperatorType.BitAnd,
+							"|=" => BinaryOperatorType.BitOr,
+							"~=" => BinaryOperatorType.BitXor,
+							_ => throw new SemanticException(v, $"Unknown operator '{v.GetValue<string>(1)}'")
+						}
+					};
+				});
+
 			builder.CreateRule("assignment_or_call_statement")
 				.Choice(
 					// Assignment: lvalue_list '=' explist
@@ -928,11 +971,13 @@ namespace AsyncLua.Parsing
 					b => b.Rule("function_decl_statement"),
 					b => b.Rule("return_statement"),
 					b => b.Rule("break_statement"),
+					b => b.Rule("continue_statement"),
 					b => b.Rule("goto_statement"),
 					b => b.Rule("label_statement"),
 					b => b.Rule("do_statement"),
 					b => b.Rule("lock_statement"),
 					b => b.Rule("await_statement"),
+					b => b.Rule("augassignment_statement"),
 					b => b.Rule("assignment_or_call_statement"));
 		}
 	}
