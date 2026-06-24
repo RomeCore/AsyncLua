@@ -76,6 +76,7 @@ namespace AsyncLua.Interpreting
 			var callStack = new Stack<CallStackFrame>();
 			int pc = 0;
 			var lockedObjects = new Stack<object>();
+			var tryHandlers = new Stack<TryHandlerInfo>();
 			var globals = context.Globals;
 
 			var frame = new CallStackFrame(function, returnPC: -1)
@@ -124,685 +125,747 @@ namespace AsyncLua.Interpreting
 			{
 				while (true)
 				{
-					var inst = instructions[pc];
-
-					switch (inst.Code)
+					try
 					{
-						case OpCode.JMP:
-							{
-								pc += GetSignedOffset(inst);
-								break;
-							}
+						var inst = instructions[pc];
 
-						case OpCode.JMPIF:
-							{
-								if (registers[inst.A].ToBoolean())
+						switch (inst.Code)
+						{
+							case OpCode.JMP:
+								{
 									pc += GetSignedOffset(inst);
-								else
-									pc++;
-								break;
-							}
-
-						case OpCode.NEWTABLE:
-							{
-								registers[inst.A] = new LuaTable();
-								pc++;
-								break;
-							}
-
-						case OpCode.GETTABLE:
-							{
-								var table = registers[inst.B] as LuaTable
-									?? throw new LuaRuntimeException("GETTABLE: operand B must be a table.");
-								var key = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
-								registers[inst.A] = table.Get(key);
-								pc++;
-								break;
-							}
-
-						case OpCode.SETTABLE:
-							{
-								var table = registers[inst.A] as LuaTable
-									?? throw new LuaRuntimeException("SETTABLE: operand A must be a table.");
-								var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-								var value = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
-								table.Set(key, value);
-								pc++;
-								break;
-							}
-
-						case OpCode.GETGLOBAL:
-							{
-								var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-								registers[inst.A] = globals.Get(key);
-								pc++;
-								break;
-							}
-
-						case OpCode.SETGLOBAL:
-							{
-								var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-								globals.Set(key, registers[inst.A]);
-								pc++;
-								break;
-							}
-
-						case OpCode.LOCK:
-							{
-								var lockTarget = registers[inst.A];
-								if (async)
-									await LuaMonitor.EnterAsync(lockTarget);
-								else
-									LuaMonitor.Enter(lockTarget);
-								lockedObjects.Push(lockTarget);
-								pc++;
-								break;
-							}
-
-						case OpCode.UNLOCK:
-							{
-								var lockTarget = registers[inst.A];
-								LuaMonitor.Exit(lockTarget);
-								// Remove from tracking stack (search from top).
-								if (lockedObjects.Count > 0 && ReferenceEquals(lockedObjects.Peek(), lockTarget))
-									lockedObjects.Pop();
-								pc++;
-								break;
-							}
-
-						case OpCode.CLOSURE:
-							{
-								var innerProtos = frame.Function.InnerPrototypes;
-								if (inst.B >= innerProtos.Length)
-									throw new LuaRuntimeException("CLOSURE: inner prototype index out of range.");
-								var proto = innerProtos[inst.B];
-
-								var upvalueDescs = proto.UpvalueDescriptions;
-								var upvalues = new Upvalue[upvalueDescs.Length];
-
-								for (int i = 0; i < upvalueDescs.Length; i++)
-								{
-									var desc = upvalueDescs[i];
-									if (desc.IsLocal)
-									{
-										// Capture from the current frame.
-										var existing = frame.OpenUpvalues?[desc.RegisterIndex];
-										if (existing != null)
-										{
-											upvalues[i] = existing;
-										}
-										else
-										{
-											var upval = new Upvalue(registers, desc.RegisterIndex);
-											if (frame.OpenUpvalues == null)
-												frame.OpenUpvalues = new Upvalue[registers.Length];
-											frame.OpenUpvalues[desc.RegisterIndex] = upval;
-											upvalues[i] = upval;
-										}
-									}
-									else
-									{
-										// Capture from an outer scope: reuse from the current closure's upvalues.
-										var closure = frame.Closure
-											?? throw new LuaRuntimeException("CLOSURE: non-local upvalue requires an enclosing closure.");
-										upvalues[i] = closure.Upvalues[desc.RegisterIndex];
-									}
-								}
-
-								registers[inst.A] = new LuaNativeFunction(proto, upvalues);
-								pc++;
-								break;
-							}
-
-						case OpCode.GETUPVAL:
-							{
-								var closure = frame.Closure
-									?? throw new LuaRuntimeException("GETUPVAL: no closure in current frame.");
-								if (inst.B >= closure.Upvalues.Length)
-									throw new LuaRuntimeException("GETUPVAL: invalid upvalue index.");
-								registers[inst.A] = closure.Upvalues[inst.B].Value;
-								pc++;
-								break;
-							}
-
-						case OpCode.SETUPVAL:
-							{
-								var closure = frame.Closure
-									?? throw new LuaRuntimeException("SETUPVAL: no closure in current frame.");
-								if (inst.A >= closure.Upvalues.Length)
-									throw new LuaRuntimeException("SETUPVAL: invalid upvalue index.");
-								closure.Upvalues[inst.A].Value = registers[inst.B];
-								pc++;
-								break;
-							}
-
-						case OpCode.CLOSE:
-							{
-								int startReg = inst.A;
-								if (frame.OpenUpvalues != null)
-								{
-									for (int i = startReg; i < frame.OpenUpvalues.Length; i++)
-									{
-										var uv = frame.OpenUpvalues[i];
-										if (uv != null)
-										{
-											uv.Close();
-											frame.OpenUpvalues[i] = null;
-										}
-									}
-								}
-								pc++;
-								break;
-							}
-
-						case OpCode.AWAIT:
-							{
-								if (!async)
-									throw new LuaRuntimeException("AWAIT is only supported in CallAsync, not Call.");
-
-								var task = registers[inst.A] as LuaTask
-									?? throw new LuaRuntimeException("AWAIT: operand A must be a LuaTask.");
-
-								var results = await task;
-								// C = 0 means "accept all results" (Lua multiple-return convention).
-								int wantResults = inst.C == 0 ? results.Count : inst.C;
-								int storeCount = Math.Min(results.Count, wantResults);
-								for (int i = 0; i < storeCount; i++)
-									registers[inst.A + i] = results[i];
-								// Pad with nil if fewer results than expected.
-								for (int i = storeCount; i < wantResults; i++)
-									registers[inst.A + i] = LuaNil.Instance;
-
-								// Track highest written register for RETURN B=0.
-								int top = inst.A + Math.Max(storeCount, wantResults);
-								if (top > frame.RegisterTop)
-									frame.RegisterTop = top;
-
-								pc++;
-								break;
-							}
-
-						case OpCode.MOVE:
-							{
-								registers[inst.A] = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-								pc++;
-								break;
-							}
-
-						case OpCode.ADD:
-							{
-								registers[inst.A] = ArithOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									ArithOpKind.Add, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.SUB:
-							{
-								registers[inst.A] = ArithOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									ArithOpKind.Sub, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.MUL:
-							{
-								registers[inst.A] = ArithOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									ArithOpKind.Mul, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.DIV:
-							{
-								registers[inst.A] = ArithOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									ArithOpKind.Div, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.IDIV:
-							{
-								registers[inst.A] = ArithOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									ArithOpKind.IDiv, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.EQ:
-							{
-								registers[inst.A] = CompareOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									CompareOpKind.Eq, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.LT:
-							{
-								registers[inst.A] = CompareOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									CompareOpKind.Lt, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.LE:
-							{
-								registers[inst.A] = CompareOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									CompareOpKind.Le, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.GT:
-							{
-								registers[inst.A] = CompareOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									CompareOpKind.Gt, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.GE:
-							{
-								registers[inst.A] = CompareOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									CompareOpKind.Ge, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.POW:
-							{
-								registers[inst.A] = ArithOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									ArithOpKind.Pow, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.MOD:
-							{
-								registers[inst.A] = ArithOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									ArithOpKind.Mod, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.CONCAT:
-							{
-								var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-								var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
-								registers[inst.A] = ConcatOp(lhs, rhs, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.UNM:
-							{
-								registers[inst.A] = UnmOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.NOT:
-							{
-								registers[inst.A] = NotOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)));
-								pc++;
-								break;
-							}
-
-						case OpCode.LEN:
-							{
-								registers[inst.A] = LenOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.NE:
-							{
-								registers[inst.A] = CompareOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									CompareOpKind.Ne, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.BAND:
-							{
-								registers[inst.A] = BitwiseOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									BitwiseOpKind.And, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.BOR:
-							{
-								registers[inst.A] = BitwiseOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									BitwiseOpKind.Or, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.BXOR:
-							{
-								registers[inst.A] = BitwiseOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									BitwiseOpKind.Xor, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.SHL:
-							{
-								registers[inst.A] = BitwiseOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									BitwiseOpKind.Shl, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.SHR:
-							{
-								registers[inst.A] = BitwiseOp(
-									GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-									GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-									BitwiseOpKind.Shr, inst);
-								pc++;
-								break;
-							}
-
-						case OpCode.CALL:
-							{
-								var func = registers[inst.A] as LuaFunction
-									?? throw new LuaRuntimeException("CALL: operand A must be a function.");
-								pc++;
-
-								int argCount = inst.B;
-								int wantResults = inst.C;
-
-								// Collect arguments.
-								var args = new LuaValue[argCount];
-								for (int i = 0; i < argCount; i++)
-									args[i] = registers[inst.A + 1 + i];
-
-								// ── Async function: launch and return a LuaTask immediately ──
-								if (func.IsAsync)
-								{
-									var csharpTask = func.InvokeAsync(context, args);
-									registers[inst.A] = LuaTask.FromTask(csharpTask);
-									// pc already advanced; execution continues without blocking.
 									break;
 								}
 
-								// ── Synchronous bytecode function ──
-								if (func is LuaNativeFunction nativeFunc)
+							case OpCode.JMPIF:
 								{
-									// Push a new call frame for bytecode execution.
-									if (callStack.Count >= maxStackSize)
-										throw new LuaRuntimeException("Call stack overflow.");
+									if (registers[inst.A].ToBoolean())
+										pc += GetSignedOffset(inst);
+									else
+										pc++;
+									break;
+								}
 
-									callStack.Push(frame);
-									var newFrame = new CallStackFrame(
-										nativeFunc.Prototype,
-										returnPC: pc,
-										resultBase: inst.A,
-										resultCount: inst.C)
+							case OpCode.NEWTABLE:
+								{
+									registers[inst.A] = new LuaTable();
+									pc++;
+									break;
+								}
+
+							case OpCode.GETTABLE:
+								{
+									var table = registers[inst.B] as LuaTable
+										?? throw new LuaRuntimeException("GETTABLE: operand B must be a table.");
+									var key = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									registers[inst.A] = table.Get(key);
+									pc++;
+									break;
+								}
+
+							case OpCode.SETTABLE:
+								{
+									var table = registers[inst.A] as LuaTable
+										?? throw new LuaRuntimeException("SETTABLE: operand A must be a table.");
+									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var value = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									table.Set(key, value);
+									pc++;
+									break;
+								}
+
+							case OpCode.GETGLOBAL:
+								{
+									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									registers[inst.A] = globals.Get(key);
+									pc++;
+									break;
+								}
+
+							case OpCode.SETGLOBAL:
+								{
+									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									globals.Set(key, registers[inst.A]);
+									pc++;
+									break;
+								}
+
+							case OpCode.LOCK:
+								{
+									var lockTarget = registers[inst.A];
+									if (async)
+										await LuaMonitor.EnterAsync(lockTarget);
+									else
+										LuaMonitor.Enter(lockTarget);
+									lockedObjects.Push(lockTarget);
+									pc++;
+									break;
+								}
+
+							case OpCode.UNLOCK:
+								{
+									var lockTarget = registers[inst.A];
+									LuaMonitor.Exit(lockTarget);
+									// Remove from tracking stack (search from top).
+									if (lockedObjects.Count > 0 && ReferenceEquals(lockedObjects.Peek(), lockTarget))
+										lockedObjects.Pop();
+									pc++;
+									break;
+								}
+
+							case OpCode.CLOSURE:
+								{
+									var innerProtos = frame.Function.InnerPrototypes;
+									if (inst.B >= innerProtos.Length)
+										throw new LuaRuntimeException("CLOSURE: inner prototype index out of range.");
+									var proto = innerProtos[inst.B];
+
+									var upvalueDescs = proto.UpvalueDescriptions;
+									var upvalues = new Upvalue[upvalueDescs.Length];
+
+									for (int i = 0; i < upvalueDescs.Length; i++)
 									{
-										Closure = nativeFunc
-									};
-
-									// Copy arguments to new frame registers.
-									var newRegs = newFrame.Registers;
-									int copyCount = Math.Min(argCount, newRegs.Length);
-									for (int i = 0; i < copyCount; i++)
-										newRegs[i] = args[i];
-									// Pad rest with nil.
-									for (int i = copyCount; i < newRegs.Length; i++)
-										newRegs[i] = LuaNil.Instance;
-									newFrame.RegisterTop = copyCount;
-
-									// Switch to new frame.
-
-									// If the function is vararg, store extra arguments in VarArgs.
-									if (nativeFunc.Prototype.IsVararg)
-									{
-										byte fixedCount = nativeFunc.Prototype.ParameterCount;
-										int extraCount = argCount - fixedCount;
-										if (extraCount > 0)
+										var desc = upvalueDescs[i];
+										if (desc.IsLocal)
 										{
-											var varArgs = new LuaValue[extraCount];
-											for (int i = 0; i < extraCount; i++)
-												varArgs[i] = args[fixedCount + i];
-											newFrame.VarArgs = varArgs;
+											// Capture from the current frame.
+											var existing = frame.OpenUpvalues?[desc.RegisterIndex];
+											if (existing != null)
+											{
+												upvalues[i] = existing;
+											}
+											else
+											{
+												var upval = new Upvalue(registers, desc.RegisterIndex);
+												if (frame.OpenUpvalues == null)
+													frame.OpenUpvalues = new Upvalue[registers.Length];
+												frame.OpenUpvalues[desc.RegisterIndex] = upval;
+												upvalues[i] = upval;
+											}
 										}
 										else
 										{
-											newFrame.VarArgs = Array.Empty<LuaValue>();
+											// Capture from an outer scope: reuse from the current closure's upvalues.
+											var closure = frame.Closure
+												?? throw new LuaRuntimeException("CLOSURE: non-local upvalue requires an enclosing closure.");
+											upvalues[i] = closure.Upvalues[desc.RegisterIndex];
 										}
 									}
-									frame = newFrame;
-									registers = newRegs;
-									constants = nativeFunc.Prototype.Constants;
-									instructions = nativeFunc.Prototype.Instructions;
-									pc = 0;
-								}
-								else
-								{
-									// ── Synchronous C# callback function ──
-									LuaTuple results;
-									if (async)
-										results = await func.InvokeAsync(context, args);
-									else
-										results = func.Invoke(context, args);
 
-									// Store results in R[A]..R[A + wantResults - 1].
+									registers[inst.A] = new LuaNativeFunction(proto, upvalues);
+									pc++;
+									break;
+								}
+
+							case OpCode.GETUPVAL:
+								{
+									var closure = frame.Closure
+										?? throw new LuaRuntimeException("GETUPVAL: no closure in current frame.");
+									if (inst.B >= closure.Upvalues.Length)
+										throw new LuaRuntimeException("GETUPVAL: invalid upvalue index.");
+									registers[inst.A] = closure.Upvalues[inst.B].Value;
+									pc++;
+									break;
+								}
+
+							case OpCode.SETUPVAL:
+								{
+									var closure = frame.Closure
+										?? throw new LuaRuntimeException("SETUPVAL: no closure in current frame.");
+									if (inst.A >= closure.Upvalues.Length)
+										throw new LuaRuntimeException("SETUPVAL: invalid upvalue index.");
+									closure.Upvalues[inst.A].Value = registers[inst.B];
+									pc++;
+									break;
+								}
+
+							case OpCode.CLOSE:
+								{
+									int startReg = inst.A;
+									if (frame.OpenUpvalues != null)
+									{
+										for (int i = startReg; i < frame.OpenUpvalues.Length; i++)
+										{
+											var uv = frame.OpenUpvalues[i];
+											if (uv != null)
+											{
+												uv.Close();
+												frame.OpenUpvalues[i] = null;
+											}
+										}
+									}
+									pc++;
+									break;
+								}
+
+							case OpCode.AWAIT:
+								{
+									if (!async)
+										throw new LuaRuntimeException("AWAIT is only supported in CallAsync, not Call.");
+
+									var task = registers[inst.A] as LuaTask
+										?? throw new LuaRuntimeException("AWAIT: operand A must be a LuaTask.");
+
+									var results = await task;
+									// C = 0 means "accept all results" (Lua multiple-return convention).
+									int wantResults = inst.C == 0 ? results.Count : inst.C;
 									int storeCount = Math.Min(results.Count, wantResults);
 									for (int i = 0; i < storeCount; i++)
 										registers[inst.A + i] = results[i];
 									// Pad with nil if fewer results than expected.
 									for (int i = storeCount; i < wantResults; i++)
 										registers[inst.A + i] = LuaNil.Instance;
+
+									// Track highest written register for RETURN B=0.
+									int top = inst.A + Math.Max(storeCount, wantResults);
+									if (top > frame.RegisterTop)
+										frame.RegisterTop = top;
+
+									pc++;
+									break;
 								}
-								break;
-							}
 
-						case OpCode.RETURN:
-							{
-								// B = 0 means "variable number of results" (Lua convention).
-								// Return all values from R[A] to RegisterTop (tracked by AWAIT).
-								int resultCount = inst.B == 0
-									? Math.Max(0, frame.RegisterTop - inst.A)
-									: inst.B;
-								pc++;
-
-								if (callStack.Count > 0)
+							case OpCode.MOVE:
 								{
-									// Close all open upvalues in the current frame.
-									if (frame.OpenUpvalues != null)
+									registers[inst.A] = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									pc++;
+									break;
+								}
+
+							case OpCode.ADD:
+								{
+									registers[inst.A] = ArithOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										ArithOpKind.Add, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.SUB:
+								{
+									registers[inst.A] = ArithOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										ArithOpKind.Sub, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.MUL:
+								{
+									registers[inst.A] = ArithOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										ArithOpKind.Mul, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.DIV:
+								{
+									registers[inst.A] = ArithOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										ArithOpKind.Div, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.IDIV:
+								{
+									registers[inst.A] = ArithOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										ArithOpKind.IDiv, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.EQ:
+								{
+									registers[inst.A] = CompareOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										CompareOpKind.Eq, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.LT:
+								{
+									registers[inst.A] = CompareOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										CompareOpKind.Lt, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.LE:
+								{
+									registers[inst.A] = CompareOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										CompareOpKind.Le, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.GT:
+								{
+									registers[inst.A] = CompareOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										CompareOpKind.Gt, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.GE:
+								{
+									registers[inst.A] = CompareOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										CompareOpKind.Ge, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.POW:
+								{
+									registers[inst.A] = ArithOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										ArithOpKind.Pow, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.MOD:
+								{
+									registers[inst.A] = ArithOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										ArithOpKind.Mod, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.CONCAT:
+								{
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									registers[inst.A] = ConcatOp(lhs, rhs, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.UNM:
+								{
+									registers[inst.A] = UnmOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.NOT:
+								{
+									registers[inst.A] = NotOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)));
+									pc++;
+									break;
+								}
+
+							case OpCode.LEN:
+								{
+									registers[inst.A] = LenOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.NE:
+								{
+									registers[inst.A] = CompareOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										CompareOpKind.Ne, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.BAND:
+								{
+									registers[inst.A] = BitwiseOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										BitwiseOpKind.And, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.BOR:
+								{
+									registers[inst.A] = BitwiseOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										BitwiseOpKind.Or, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.BXOR:
+								{
+									registers[inst.A] = BitwiseOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										BitwiseOpKind.Xor, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.SHL:
+								{
+									registers[inst.A] = BitwiseOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										BitwiseOpKind.Shl, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.SHR:
+								{
+									registers[inst.A] = BitwiseOp(
+										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
+										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
+										BitwiseOpKind.Shr, inst);
+									pc++;
+									break;
+								}
+
+							case OpCode.TRY:
+								{
+									int catchReg = inst.A; // 0xFF = none
+									int catchPC = pc + 1 + GetSignedOffset(inst);
+									tryHandlers.Push(new TryHandlerInfo
 									{
-										foreach (var uv in frame.OpenUpvalues)
-											uv?.Close();
+										CatchPC = catchPC,
+										CatchVarReg = catchReg != 0xFF ? catchReg : null,
+										Used = false
+									});
+									pc++;
+									break;
+								}
+
+							case OpCode.ENDTRY:
+								{
+									if (tryHandlers.Count > 0)
+										tryHandlers.Pop();
+									pc++;
+									break;
+								}
+
+							case OpCode.THROW:
+								{
+									var exValue = registers[inst.A];
+									throw new LuaRuntimeException(exValue.ToString());
+								}
+
+
+							case OpCode.CALL:
+								{
+									var func = registers[inst.A] as LuaFunction
+										?? throw new LuaRuntimeException("CALL: operand A must be a function.");
+									pc++;
+
+									int argCount = inst.B;
+									int wantResults = inst.C;
+
+									// Collect arguments.
+									var args = new LuaValue[argCount];
+									for (int i = 0; i < argCount; i++)
+										args[i] = registers[inst.A + 1 + i];
+
+									// ── Async function: launch and return a LuaTask immediately ──
+									if (func.IsAsync)
+									{
+										var csharpTask = func.InvokeAsync(context, args);
+										registers[inst.A] = LuaTask.FromTask(csharpTask);
+										// pc already advanced; execution continues without blocking.
+										break;
 									}
 
-									// Return to caller frame.
-									var callerFrame = callStack.Pop();
+									// ── Synchronous bytecode function ──
+									if (func is LuaNativeFunction nativeFunc)
+									{
+										// Push a new call frame for bytecode execution.
+										if (callStack.Count >= maxStackSize)
+											throw new LuaRuntimeException("Call stack overflow.");
 
-									// Copy results to caller's registers (using callee's stored result info).
-									int destBase = frame.ResultBase;
-									int wantResults = frame.ResultCount;
-									// If the caller wants multiple results (wantResults=0), accept all.
-									int effectiveWant = wantResults == 0 ? resultCount : wantResults;
-									for (int i = 0; i < resultCount && i < effectiveWant; i++)
-										callerFrame.Registers[destBase + i] = registers[inst.A + i];
-									// Pad with nil.
-									for (int i = resultCount; i < effectiveWant; i++)
-										callerFrame.Registers[destBase + i] = LuaNil.Instance;
+										callStack.Push(frame);
+										var newFrame = new CallStackFrame(
+											nativeFunc.Prototype,
+											returnPC: pc,
+											resultBase: inst.A,
+											resultCount: inst.C)
+										{
+											Closure = nativeFunc
+										};
 
-									// Restore caller state.
-									pc = frame.ReturnPC;
-									frame = callerFrame;
-									registers = callerFrame.Registers;
-									constants = callerFrame.Function.Constants;
-									instructions = callerFrame.Function.Instructions;
-								}
-								else
-								{
-									// Top-level return — collect all results into a LuaTuple.
-									var results = new LuaValue[resultCount];
-									for (int i = 0; i < resultCount; i++)
-										results[i] = registers[inst.A + i];
-									return new LuaTuple(results);
-								}
-								break;
-							}
+										// Copy arguments to new frame registers.
+										var newRegs = newFrame.Registers;
+										int copyCount = Math.Min(argCount, newRegs.Length);
+										for (int i = 0; i < copyCount; i++)
+											newRegs[i] = args[i];
+										// Pad rest with nil.
+										for (int i = copyCount; i < newRegs.Length; i++)
+											newRegs[i] = LuaNil.Instance;
+										newFrame.RegisterTop = copyCount;
 
-						case OpCode.FORPREP:
-							{
-								// R[A] -= R[A+2]; pc += sBx
-								var start = registers[inst.A];
-								var step = registers[inst.A + 2];
-								if (!start.TryToNumber(out var s) || !step.TryToNumber(out var st))
-									throw new LuaRuntimeException("FORPREP: operands must be numbers.");
+										// Switch to new frame.
 
-								registers[inst.A] = new LuaNumber(s - st);
-								pc += GetSignedOffset(inst);
-								break;
-							}
-
-						case OpCode.FORLOOP:
-							{
-								// R[A] += R[A+2]; check condition; jump if true
-								var counter = registers[inst.A];
-								var limit = registers[inst.A + 1];
-								var step = registers[inst.A + 2];
-
-								if (!counter.TryToNumber(out var c) || !limit.TryToNumber(out var l) || !step.TryToNumber(out var st))
-									throw new LuaRuntimeException("FORLOOP: operands must be numbers.");
-
-								c += st;
-								registers[inst.A] = new LuaNumber(c);
-
-								bool cont;
-								if (st > 0)
-									cont = c <= l;
-								else
-									cont = c >= l;
-
-								if (cont)
-									pc += GetSignedOffset(inst);
-								else
-									pc++;
-								break;
-							}
-
-						case OpCode.TFORCALL:
-							{
-								// Call R[A] (the iterator function) with arguments R[A+1] (state), R[A+2] (var).
-								// First result → R[A+2] (new var), second result → R[A+1] (new state) if present.
-								// Results are also stored at R[A+3].. for use by loop variables.
-								var tforFunc = registers[inst.A] as LuaFunction
-									?? throw new LuaRuntimeException("TFORCALL: operand A must be a function.");
-
-								var tforArgs = new LuaValue[] { registers[inst.A + 1], registers[inst.A + 2] };
-
-								LuaTuple results;
-								if (async)
-									results = await tforFunc.InvokeAsync(context, tforArgs);
-								else
-									results = tforFunc.Invoke(context, tforArgs);
-
-								// Store results at R[A+3].. (for loop variables mapped by the compiler).
-								int baseResult = inst.A + 3;
-								int wantResults = inst.C;
-								if (wantResults == 0)
-									wantResults = results.Count;
-
-								for (int i = 0; i < wantResults && i < results.Count; i++)
-									registers[baseResult + i] = results[i];
-								for (int i = results.Count; i < wantResults; i++)
-									registers[baseResult + i] = LuaNil.Instance;
-
-								// Update var (R[A+2]) from the first result. Nil if exhausted.
-								registers[inst.A + 2] = results.Count > 0 ? results[0] : LuaNil.Instance;
-
-								// Update state (R[A+1]) only if the iterator returned a second value.
-								if (results.Count >= 2)
-									registers[inst.A + 1] = results[1];
-
-								pc++;
-								break;
-							}
-
-						case OpCode.TFORLOOP:
-							{
-								// If R[A+2] (current value) != nil, jump to body;
-								// otherwise fall through to the exit jump (emitted by the compiler).
-								// R[A] (the iterator function) is preserved across iterations.
-								if (registers[inst.A + 2].Type != LuaType.Nil)
-								{
-									pc += GetSignedOffset(inst);
-								}
-								else
-								{
-									pc++;
-								}
-								break;
-							}
-
-						case OpCode.VARARG:
-							{
-								var varArgs = frame.VarArgs ?? Array.Empty<LuaValue>();
-								int want = inst.B;
-								if (want == 0)
-									want = varArgs.Length;
-
-								for (int i = 0; i < want; i++)
-								{
-									if (i < varArgs.Length)
-										registers[inst.A + i] = varArgs[i];
+										// If the function is vararg, store extra arguments in VarArgs.
+										if (nativeFunc.Prototype.IsVararg)
+										{
+											byte fixedCount = nativeFunc.Prototype.ParameterCount;
+											int extraCount = argCount - fixedCount;
+											if (extraCount > 0)
+											{
+												var varArgs = new LuaValue[extraCount];
+												for (int i = 0; i < extraCount; i++)
+													varArgs[i] = args[fixedCount + i];
+												newFrame.VarArgs = varArgs;
+											}
+											else
+											{
+												newFrame.VarArgs = Array.Empty<LuaValue>();
+											}
+										}
+										frame = newFrame;
+										registers = newRegs;
+										constants = nativeFunc.Prototype.Constants;
+										instructions = nativeFunc.Prototype.Instructions;
+										pc = 0;
+									}
 									else
-										registers[inst.A + i] = LuaNil.Instance;
+									{
+										// ── Synchronous C# callback function ──
+										LuaTuple results;
+										if (async)
+											results = await func.InvokeAsync(context, args);
+										else
+											results = func.Invoke(context, args);
+
+										// Store results in R[A]..R[A + wantResults - 1].
+										int storeCount = Math.Min(results.Count, wantResults);
+										for (int i = 0; i < storeCount; i++)
+											registers[inst.A + i] = results[i];
+										// Pad with nil if fewer results than expected.
+										for (int i = storeCount; i < wantResults; i++)
+											registers[inst.A + i] = LuaNil.Instance;
+									}
+									break;
 								}
 
-								pc++;
-								break;
-							}
+							case OpCode.RETURN:
+								{
+									// B = 0 means "variable number of results" (Lua convention).
+									// Return all values from R[A] to RegisterTop (tracked by AWAIT).
+									int resultCount = inst.B == 0
+										? Math.Max(0, frame.RegisterTop - inst.A)
+										: inst.B;
+									pc++;
 
-						default:
-							throw new LuaRuntimeException($"Unknown opcode: {inst.Code}.");
+									if (callStack.Count > 0)
+									{
+										// Close all open upvalues in the current frame.
+										if (frame.OpenUpvalues != null)
+										{
+											foreach (var uv in frame.OpenUpvalues)
+												uv?.Close();
+										}
+
+										// Return to caller frame.
+										var callerFrame = callStack.Pop();
+
+										// Copy results to caller's registers (using callee's stored result info).
+										int destBase = frame.ResultBase;
+										int wantResults = frame.ResultCount;
+										// If the caller wants multiple results (wantResults=0), accept all.
+										int effectiveWant = wantResults == 0 ? resultCount : wantResults;
+										for (int i = 0; i < resultCount && i < effectiveWant; i++)
+											callerFrame.Registers[destBase + i] = registers[inst.A + i];
+										// Pad with nil.
+										for (int i = resultCount; i < effectiveWant; i++)
+											callerFrame.Registers[destBase + i] = LuaNil.Instance;
+
+										// Restore caller state.
+										pc = frame.ReturnPC;
+										frame = callerFrame;
+										registers = callerFrame.Registers;
+										constants = callerFrame.Function.Constants;
+										instructions = callerFrame.Function.Instructions;
+									}
+									else
+									{
+										// Top-level return — collect all results into a LuaTuple.
+										var results = new LuaValue[resultCount];
+										for (int i = 0; i < resultCount; i++)
+											results[i] = registers[inst.A + i];
+										return new LuaTuple(results);
+									}
+									break;
+								}
+
+							case OpCode.FORPREP:
+								{
+									// R[A] -= R[A+2]; pc += sBx
+									var start = registers[inst.A];
+									var step = registers[inst.A + 2];
+									if (!start.TryToNumber(out var s) || !step.TryToNumber(out var st))
+										throw new LuaRuntimeException("FORPREP: operands must be numbers.");
+
+									registers[inst.A] = new LuaNumber(s - st);
+									pc += GetSignedOffset(inst);
+									break;
+								}
+
+							case OpCode.FORLOOP:
+								{
+									// R[A] += R[A+2]; check condition; jump if true
+									var counter = registers[inst.A];
+									var limit = registers[inst.A + 1];
+									var step = registers[inst.A + 2];
+
+									if (!counter.TryToNumber(out var c) || !limit.TryToNumber(out var l) || !step.TryToNumber(out var st))
+										throw new LuaRuntimeException("FORLOOP: operands must be numbers.");
+
+									c += st;
+									registers[inst.A] = new LuaNumber(c);
+
+									bool cont;
+									if (st > 0)
+										cont = c <= l;
+									else
+										cont = c >= l;
+
+									if (cont)
+										pc += GetSignedOffset(inst);
+									else
+										pc++;
+									break;
+								}
+
+							case OpCode.TFORCALL:
+								{
+									// Call R[A] (the iterator function) with arguments R[A+1] (state), R[A+2] (var).
+									// First result → R[A+2] (new var), second result → R[A+1] (new state) if present.
+									// Results are also stored at R[A+3].. for use by loop variables.
+									var tforFunc = registers[inst.A] as LuaFunction
+										?? throw new LuaRuntimeException("TFORCALL: operand A must be a function.");
+
+									var tforArgs = new LuaValue[] { registers[inst.A + 1], registers[inst.A + 2] };
+
+									LuaTuple results;
+									if (async)
+										results = await tforFunc.InvokeAsync(context, tforArgs);
+									else
+										results = tforFunc.Invoke(context, tforArgs);
+
+									// Store results at R[A+3].. (for loop variables mapped by the compiler).
+									int baseResult = inst.A + 3;
+									int wantResults = inst.C;
+									if (wantResults == 0)
+										wantResults = results.Count;
+
+									for (int i = 0; i < wantResults && i < results.Count; i++)
+										registers[baseResult + i] = results[i];
+									for (int i = results.Count; i < wantResults; i++)
+										registers[baseResult + i] = LuaNil.Instance;
+
+									// Update var (R[A+2]) from the first result. Nil if exhausted.
+									registers[inst.A + 2] = results.Count > 0 ? results[0] : LuaNil.Instance;
+
+									// Update state (R[A+1]) only if the iterator returned a second value.
+									if (results.Count >= 2)
+										registers[inst.A + 1] = results[1];
+
+									pc++;
+									break;
+								}
+
+							case OpCode.TFORLOOP:
+								{
+									// If R[A+2] (current value) != nil, jump to body;
+									// otherwise fall through to the exit jump (emitted by the compiler).
+									// R[A] (the iterator function) is preserved across iterations.
+									if (registers[inst.A + 2].Type != LuaType.Nil)
+									{
+										pc += GetSignedOffset(inst);
+									}
+									else
+									{
+										pc++;
+									}
+									break;
+								}
+
+							case OpCode.VARARG:
+								{
+									var varArgs = frame.VarArgs ?? Array.Empty<LuaValue>();
+									int want = inst.B;
+									if (want == 0)
+										want = varArgs.Length;
+
+									for (int i = 0; i < want; i++)
+									{
+										if (i < varArgs.Length)
+											registers[inst.A + i] = varArgs[i];
+										else
+											registers[inst.A + i] = LuaNil.Instance;
+									}
+
+									pc++;
+									break;
+								}
+
+							default:
+								throw new LuaRuntimeException($"Unknown opcode: {inst.Code}.");
+						}
+					}
+					catch (LuaRuntimeException ex) when (tryHandlers.Count > 0)
+					{
+						// Find the nearest unused try handler.
+						TryHandlerInfo? found = null;
+						var popped = new Stack<TryHandlerInfo>();
+						while (tryHandlers.Count > 0)
+						{
+							var h = tryHandlers.Pop();
+							if (!h.Used && found is null)
+							{
+								h.Used = true;
+								found = h;
+							}
+							popped.Push(h);
+						}
+						// Push all handlers back; the used one stays on top.
+						while (popped.Count > 0)
+							tryHandlers.Push(popped.Pop());
+
+						if (found.HasValue)
+						{
+							if (found.Value.CatchVarReg.HasValue)
+								registers[found.Value.CatchVarReg.Value] = new LuaString(ex.Message);
+							pc = found.Value.CatchPC;
+						}
+						else
+						{
+							throw; // rethrow — all handlers already used
+						}
 					}
 				}
 			}
@@ -1077,6 +1140,29 @@ namespace AsyncLua.Interpreting
 
 			return new LuaNumber(result);
 		}
+
+		/// <summary>
+		/// Stores information about an active try-catch handler in the VM.
+		/// </summary>
+		private struct TryHandlerInfo
+		{
+			/// <summary>
+			/// The program counter to jump to when the catch block is entered.
+			/// </summary>
+			public int CatchPC;
+
+			/// <summary>
+			/// The register index to store the exception message, or <see langword="null"/> if none.
+			/// </summary>
+			public int? CatchVarReg;
+
+			/// <summary>
+			/// Indicates whether this handler has already been used to catch an exception.
+			/// Prevents re-entering the same catch block.
+			/// </summary>
+			public bool Used;
+		}
+
 
 		/// <summary>
 		/// Attempts to convert a <see cref="LuaValue"/> to a 64-bit signed integer

@@ -126,6 +126,9 @@ namespace AsyncLua.Compiling
 				case LabelNode labelNode: CompileLabel(labelNode); break;
 				case FunctionDeclStatementNode funcDecl: CompileFunctionDeclaration(funcDecl); break;
 				case LockNode lockNode: CompileLock(lockNode); break;
+				case TryCatchNode tryCatch: CompileTryCatch(tryCatch); break;
+				case ThrowNode throwNode: CompileThrow(throwNode); break;
+
 				case AwaitStatementNode awaitStmt: CompileAwaitStatement(awaitStmt); break;
 				default:
 					throw new CompilerException($"Unknown statement type: {stmt.GetType().Name}");
@@ -665,6 +668,72 @@ namespace AsyncLua.Compiling
 			}
 		}
 
+		// ── Try-catch ────────────────────────────────────────────────────
+
+		private void CompileTryCatch(TryCatchNode node)
+		{
+			// Layout:
+			//   TRY catchLabel, varReg
+			//   <try block>
+			//   JMP endLabel
+			// catchLabel:
+			//   <catch block>
+			// endLabel:
+			//   ENDTRY
+
+			int catchLabel = AllocateLabel();
+			int endLabel = AllocateLabel();
+
+			int varReg = node.ExceptionMessageVariable is not null
+				? AllocateRegister()
+				: 0xFF; // 0xFF = no register
+
+			// TRY catchLabel, varReg
+			EmitTRY_Label(varReg, catchLabel);
+
+			// Try block
+			CompileBlock(node.TryBody);
+
+			// JMP over catch block
+			EmitJMP_Label(endLabel);
+
+			// Catch block
+			MarkLabel(catchLabel);
+
+			if (node.ExceptionMessageVariable is not null && varReg != 0xFF)
+			{
+				// Map the exception variable name to the register
+				// (it's a local variable in the catch scope)
+				_locals[node.ExceptionMessageVariable] = varReg;
+			}
+
+			CompileBlock(node.CatchBody);
+
+			// End label + ENDTRY
+			MarkLabel(endLabel);
+			Emit(OpCode.ENDTRY);
+		}
+
+		private void EmitTRY_Label(int varReg, int catchLabelId)
+		{
+			_fixups.Add(new JumpFixup
+			{
+				InstructionIndex = _instructions.Count,
+				TargetLabel = catchLabelId
+			});
+			Emit(OpCode.TRY, varReg, 0, flags: OpFlags.SignedBX);
+		}
+
+		// ── Throw ───────────────────────────────────────────────────────
+
+		private void CompileThrow(ThrowNode node)
+		{
+			int reg = AllocateRegister();
+			CompileExpression(node.Exception, reg);
+			Emit(OpCode.THROW, (byte)reg);
+		}
+
+
 		// ═══════════════════════════════════════════════════════════════
 		// EXPRESSION COMPILATION
 		// ═══════════════════════════════════════════════════════════════
@@ -1138,7 +1207,9 @@ namespace AsyncLua.Compiling
 				}
 
 				var inst = _instructions[fixup.InstructionIndex];
-				int offset = targetPosition - fixup.InstructionIndex;
+				int offset = inst.Code == OpCode.TRY
+					? targetPosition - (fixup.InstructionIndex + 1)   // TRY: pc = TRY_pc + 1 + sBx
+					: targetPosition - fixup.InstructionIndex;        // JMP: pc += sBx
 				_instructions[fixup.InstructionIndex] = new Instruction(
 					inst.Code, inst.A, (ushort)offset, inst.C, inst.Flags);
 			}

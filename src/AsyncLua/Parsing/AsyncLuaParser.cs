@@ -72,7 +72,8 @@ namespace AsyncLua.Parsing
 					"while", "do", "repeat", "until",
 					"break", "local", "global", "and",
 					"or", "not", "in", "true",
-					"false", "nil", "continue");
+					"false", "nil", "continue", "try",
+					"catch", "throw");
 
 			builder.CreateToken("minus")
 				.First(
@@ -890,33 +891,39 @@ namespace AsyncLua.Parsing
 					}
 				});
 
-			// ── AsyncLua extensions: try-catch-finally ─────────────────
+			// ── AsyncLua extensions: try-catch / throw ─────────────────
 
-			builder.CreateRule("try_catch_finally_statement")
+			builder.CreateRule("try_catch_statement")
 				.Keyword("try")
 				.Rule("block")
+				.Keyword("catch")
 				.Optional(b => b
-					.Keyword("catch")
-					.Rule("block")
+					.Token("identifier")
+					.Keyword("do")
 				)
-				.Optional(b => b
-					.Keyword("finally")
-					.Rule("block")
-				)
+				.Rule("block")
 				.Keyword("end")
 				.Transform(v =>
 				{
-					var catchBlock = v.Children[2].Length > 0 ? v.Children[2].Children[1].GetValue<BlockNode>() : null;
-					var finallyBlock = v.Children[3].Length > 0 ? v.Children[3].Children[1].GetValue<BlockNode>() : null;
+					var exceptionVarName = v.Children[3].Length > 0 ?
+						v.Children[3].Children[0].Children[0].Text : null;
 
-					if (catchBlock == null && finallyBlock == null)
-						throw new SemanticException(v, "try block must have at least catch or finally block");
-
-					return new TryCatchFinallyNode
+					return new TryCatchNode
 					{
 						TryBody = v.GetValue<BlockNode>(1),
-						CatchBody = catchBlock,
-						FinallyBody = finallyBlock
+						CatchBody = v.GetValue<BlockNode>(4),
+						ExceptionMessageVariable = exceptionVarName
+					};
+				});
+
+			builder.CreateRule("throw_statement")
+				.Keyword("throw")
+				.Rule("expression")
+				.Transform(v =>
+				{
+					return new ThrowNode
+					{
+						Exception = v.GetValue<ExpressionNode>(1)
 					};
 				});
 
@@ -1007,7 +1014,8 @@ namespace AsyncLua.Parsing
 					b => b.Rule("do_statement"),
 					b => b.Rule("lock_statement"),
 					b => b.Rule("await_statement"),
-					b => b.Rule("try_catch_finally_statement"),
+					b => b.Rule("try_catch_statement"),
+					b => b.Rule("throw_statement"),
 					b => b.Rule("augassignment_statement"),
 					b => b.Rule("assignment_or_call_statement"));
 		}

@@ -364,5 +364,35 @@ namespace AsyncLua.Interpreting
 		/// function is vararg and more arguments are passed than fixed parameters.
 		/// </summary>
 		VARARG,
+
+		/// <summary>
+		/// Pop the most recent try handler from the runtime exception stack.
+		/// Must be emitted after the catch block ends. If a try-catch has no catch block,
+		/// <c>ENDTRY</c> is still required to clean up the handler stack.
+		/// </summary>
+		ENDTRY,
+
+		/// <summary>
+		/// Throw a Lua runtime exception. <c>R[A]</c> is converted to a string via
+		/// <see cref="LuaValue.ToString"/> and wrapped in a <see cref="LuaRuntimeException"/>.
+		/// If a try handler is active, execution continues in the nearest catch block.
+		/// Otherwise the exception propagates to the C# caller.
+		/// </summary>
+		THROW,
+
+		/// <summary>
+		/// Push a try handler onto the runtime exception stack.
+		/// <para><c>A</c> = register to store the exception message (use 0xFF for "none").</para>
+		/// <para><c>B</c> = signed 16-bit offset (sBx) from the next instruction to the catch block.
+		/// If the offset is zero or negative, no catch block is registered (handler exists only
+		/// for finally — reserved for future use).</para>
+		/// <para>
+		/// When a <see cref="LuaRuntimeException"/> is thrown during execution of the protected
+		/// block, the VM unwinds to this handler: the error message is written to <c>R[A]</c>
+		/// (if A != 0xFF) and execution continues at <c>pc = TRY_pc + 1 + sBx</c>.
+		/// </para>
+		/// Requires <see cref="OpFlags.SignedBX"/>.
+		/// </summary>
+		TRY,
 	}
 }
