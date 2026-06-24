@@ -27,15 +27,15 @@ namespace AsyncLua.Values
 		internal const int EventCount = (int)LuaMetatableEvent.Close + 1;
 
 		/// <summary>
-		/// Lookup table mapping event-name strings to their <see cref="LuaMetatableEvent"/> values.
-		/// Initialised lazily and shared across all instances.
-		/// </summary>
-		private static readonly Dictionary<string, LuaMetatableEvent> EventNameLookup = BuildEventNameLookup();
-
-		/// <summary>
 		/// Reverse lookup table mapping <see cref="LuaMetatableEvent"/> values to their string names.
+		/// Initialised first because <see cref="EventNameLookup"/> depends on it.
 		/// </summary>
 		private static readonly string[] EventNames = BuildEventNames();
+
+		/// <summary>
+		/// Lookup table mapping event-name strings to their <see cref="LuaMetatableEvent"/> values.
+		/// </summary>
+		private static readonly Dictionary<string, LuaMetatableEvent> EventNameLookup = BuildEventNameLookup();
 
 		private readonly LuaValue[] _handlers;
 

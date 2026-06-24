@@ -200,18 +200,19 @@ public class CallInterpreterTests
 	[Fact]
 	public void Call_ZeroExpectedResults_ReturnsNil()
 	{
-		// Call a function but expect 0 results — R[0] kept as function? No, it's nil-padded.
+		// C=0 in CALL means "accept all results" (Lua multiple-return convention).
+		// The function returns 42, so R[0] should be overwritten with the result.
 		var func = LuaCallbackFunction.From(_ => new LuaNumber(42));
 		var proto = MakeProto(new[]
 		{
 			new Instruction(OpCode.MOVE, a: 0, b: 0, c: 0, flags: OpFlags.KB),
-			new Instruction(OpCode.CALL, a: 0, b: 0, c: 0, flags: OpFlags.None), // 0 results expected
-            // R[0] is not overwritten — still the function object.
-            new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
+			new Instruction(OpCode.CALL, a: 0, b: 0, c: 0, flags: OpFlags.None), // C=0 → accept all results
+			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { func });
 
 		var result = AsyncLuaInterpreter.Call(proto, Context());
-		Assert.IsType<LuaCallbackFunction>(result.First);
+		Assert.IsType<LuaNumber>(result.First);
+		Assert.Equal(42.0, ((LuaNumber)result.First).Value);
 	}
 
 	[Fact]

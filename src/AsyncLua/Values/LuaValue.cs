@@ -18,6 +18,8 @@ namespace AsyncLua.Values
 		/// </summary>
 		public abstract string TypeName { get; }
 
+		private LuaMetatable? _metatable;
+
 		/// <summary>
 		/// Gets or sets the metatable associated with this value.
 		/// </summary>
@@ -34,8 +36,8 @@ namespace AsyncLua.Values
 		/// </remarks>
 		public virtual LuaMetatable? Metatable
 		{
-			get => null;
-			set { }
+			get => _metatable;
+			set => _metatable = value;
 		}
 
 		/// <summary>

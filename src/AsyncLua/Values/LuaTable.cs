@@ -26,7 +26,6 @@ namespace AsyncLua.Values
 		private const int DefaultConcurrencyLevel = 4;
 
 		private readonly ConcurrentDictionary<LuaValue, LuaValue> _entries;
-		private LuaMetatable? _metatable;
 
 		// Cached array-boundary length for the # operator; invalidated on mutation.
 		private int? _cachedLength;
@@ -46,7 +45,7 @@ namespace AsyncLua.Values
 		public LuaTable(LuaMetatable? metatable)
 			: this()
 		{
-			_metatable = metatable;
+			Metatable = metatable;
 		}
 
 		/// <summary>
@@ -235,13 +234,6 @@ namespace AsyncLua.Values
 		/// <inheritdoc />
 		public override string TypeName => "table";
 
-		/// <inheritdoc />
-		public override LuaMetatable? Metatable
-		{
-			get => _metatable;
-			set => _metatable = value;
-		}
-
 		// ── Equality ─────────────────────────────────────────────────────
 
 		/// <inheritdoc />
@@ -266,7 +258,7 @@ namespace AsyncLua.Values
 		/// <inheritdoc />
 		public override string ToString()
 		{
-			var mt = _metatable;
+			var mt = Metatable;
 			if (mt is not null)
 			{
 				var nameHandler = mt.Get(LuaMetatableEvent.Name);

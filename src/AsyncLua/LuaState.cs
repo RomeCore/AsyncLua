@@ -87,10 +87,13 @@ namespace AsyncLua
 		/// <summary>
 		/// Creates a new <see cref="LuaCallingContext"/> bound to this state.
 		/// </summary>
+		/// <param name="settings">
+		/// Optional interpreter settings to use. If <see langword="null"/>, defaults are used.
+		/// </param>
 		/// <returns>A new calling context.</returns>
-		public LuaCallingContext CreateContext()
+		public LuaCallingContext CreateContext(Interpreting.InterpreterSettings? settings = null)
 		{
-			return new LuaCallingContext(this);
+			return new LuaCallingContext(this, settings: settings);
 		}
 
 		/// <summary>

@@ -294,8 +294,11 @@ namespace AsyncLua.Compiling
 		{
 			int reg = AllocateRegister();
 			CompileExpression(node.Call, reg);
-			// Result is discarded (C=0), but we still need a slot.
-			_nextRegister = reg + 1;
+			// Result is discarded, but the CALL instruction still reads argument
+			// registers that were allocated by CompileFunctionCall. We must not
+			// shrink _nextRegister below the registers needed by the emitted CALL.
+			// The safest approach is to leave _nextRegister as-is; dead registers
+			// above the call result slot are harmless.
 		}
 
 		// ── Return ──────────────────────────────────────────────────────
@@ -309,8 +312,13 @@ namespace AsyncLua.Compiling
 			while (_nextRegister < baseReg + valueCount)
 				AllocateRegister();
 
-			// Check if the last value may expand (AwaitExpressionNode with C=0).
-			bool lastExpands = valueCount > 0 && node.Values[valueCount - 1] is AwaitExpressionNode;
+			// Check if the last value may expand:
+			// - AwaitExpressionNode: AWAIT with C=0
+			// - FunctionCallNode / VarArgumentNode: CALL with C=0
+			bool lastExpands = valueCount > 0 &&
+				(node.Values[valueCount - 1] is AwaitExpressionNode ||
+				 node.Values[valueCount - 1] is FunctionCallNode ||
+				 node.Values[valueCount - 1] is VarArgumentNode);
 
 			for (int i = 0; i < valueCount; i++)
 			{
@@ -321,10 +329,21 @@ namespace AsyncLua.Compiling
 				// Non-last await values: patch to C=1 (no expansion).
 				if (i < valueCount - 1 && node.Values[i] is AwaitExpressionNode)
 					PatchLastAwaitToSingle(instrBefore);
+				// Non-last call/vararg values: patch to C=1 (no expansion).
+				if (i < valueCount - 1 &&
+					(node.Values[i] is FunctionCallNode || node.Values[i] is VarArgumentNode))
+					PatchLastCallToSingle(instrBefore);
 			}
 
-			// Reserve headroom for expansion so AWAIT doesn't overflow the register array.
-			// (RegisterTop tracks exact usage; this just prevents IndexOutOfRangeException.)
+			// For the last value: if it's a call/vararg, patch its CALL to C=0 (expand).
+			if (valueCount > 0)
+			{
+				var lastValue = node.Values[valueCount - 1];
+				if (lastValue is FunctionCallNode || lastValue is VarArgumentNode)
+					PatchLastCallToExpand();
+			}
+
+			// Reserve headroom for expansion so AWAIT/CALL don't overflow the register array.
 			if (lastExpands)
 			{
 				while (_nextRegister < baseReg + valueCount + 16)
@@ -349,6 +368,38 @@ namespace AsyncLua.Compiling
 				if (inst.Code == OpCode.AWAIT)
 				{
 					_instructions[j] = new Instruction(inst.Code, inst.A, inst.B, 1, inst.Flags);
+					return;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Finds the last CALL instruction emitted and changes its C operand to 1 (non-expanding).
+		/// </summary>
+		private void PatchLastCallToSingle(int startIndex)
+		{
+			for (int j = _instructions.Count - 1; j >= startIndex; j--)
+			{
+				var inst = _instructions[j];
+				if (inst.Code == OpCode.CALL)
+				{
+					_instructions[j] = new Instruction(inst.Code, inst.A, inst.B, 1, inst.Flags);
+					return;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Finds the last CALL instruction emitted and changes its C operand to 0 (expand results).
+		/// </summary>
+		private void PatchLastCallToExpand()
+		{
+			for (int j = _instructions.Count - 1; j >= 0; j--)
+			{
+				var inst = _instructions[j];
+				if (inst.Code == OpCode.CALL)
+				{
+					_instructions[j] = new Instruction(inst.Code, inst.A, inst.B, 0, inst.Flags);
 					return;
 				}
 			}

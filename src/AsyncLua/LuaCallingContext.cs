@@ -1,4 +1,5 @@
 using System;
+using AsyncLua.Interpreting;
 using AsyncLua.Values;
 
 namespace AsyncLua
@@ -29,6 +30,11 @@ namespace AsyncLua
 		public LuaTable Globals { get; }
 
 		/// <summary>
+		/// Gets the interpreter settings for this execution context.
+		/// </summary>
+		public InterpreterSettings Settings { get; }
+
+		/// <summary>
 		/// Initialises a new instance of the <see cref="LuaCallingContext"/> class.
 		/// </summary>
 		/// <param name="state">The owning Lua state.</param>
@@ -36,10 +42,17 @@ namespace AsyncLua
 		/// The global environment table for this context. If <see langword="null"/>,
 		/// <see cref="LuaState.Globals"/> is used.
 		/// </param>
-		internal LuaCallingContext(LuaState state, LuaTable? globals = null)
+		/// <param name="settings">
+		/// Interpreter settings to use. If <see langword="null"/>, a default instance is created.
+		/// </param>
+		internal LuaCallingContext(
+			LuaState state,
+			LuaTable? globals = null,
+			InterpreterSettings? settings = null)
 		{
 			State = state ?? throw new ArgumentNullException(nameof(state));
 			Globals = globals ?? state.Globals;
+			Settings = settings ?? new InterpreterSettings();
 		}
 	}
 }

@@ -73,6 +73,7 @@ namespace AsyncLua.Interpreting
 			if (maxStackSize <= 0)
 				throw new ArgumentException("Max stack size must be greater than zero.", nameof(maxStackSize));
 
+			var metatableMode = context.Settings.MetatableMode;
 			var callStack = new Stack<CallStackFrame>();
 			int pc = 0;
 			var lockedObjects = new Stack<object>();
@@ -155,24 +156,110 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.GETTABLE:
 								{
-									var table = registers[inst.B] as LuaTable
-										?? throw new LuaRuntimeException("GETTABLE: operand B must be a table.");
 									var key = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
-									registers[inst.A] = table.Get(key);
+									var table = registers[inst.B];
+									var mode = context.Settings.MetatableMode;
+
+									// Try direct table access first.
+									if (table is LuaTable tbl)
+									{
+										var result = tbl.Get(key);
+										if (result.Type != LuaType.Nil)
+										{
+											registers[inst.A] = result;
+											pc++;
+											break;
+										}
+									}
+
+									// Key not found (or not a table) — try __index metamethod.
+									var index = GetMetamethod(table, LuaMetatableEvent.Index, mode);
+									if (index.Type != LuaType.Nil)
+									{
+										if (index is LuaFunction func)
+										{
+											LuaTuple mmResult;
+											if (async)
+												mmResult = await func.InvokeAsync(context, new[] { table, key });
+											else
+												mmResult = func.Invoke(context, new[] { table, key });
+											registers[inst.A] = mmResult.Count > 0 ? mmResult[0] : LuaNil.Instance;
+											pc++;
+											break;
+										}
+
+										if (index is LuaTable indexTable)
+										{
+											registers[inst.A] = indexTable.Get(key);
+											pc++;
+											break;
+										}
+									}
+
+									// Fallback: if it's a table, return nil; otherwise it's an error.
+									if (table is LuaTable)
+										registers[inst.A] = LuaNil.Instance;
+									else
+										throw new LuaRuntimeException("GETTABLE: operand B must be a table.");
+
 									pc++;
 									break;
 								}
 
 							case OpCode.SETTABLE:
 								{
-									var table = registers[inst.A] as LuaTable
-										?? throw new LuaRuntimeException("SETTABLE: operand A must be a table.");
 									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
 									var value = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
-									table.Set(key, value);
+									var table = registers[inst.A];
+									var mode = context.Settings.MetatableMode;
+
+									if (table is LuaTable tbl)
+									{
+										// In Default mode, __newindex is only invoked if the key does NOT already exist.
+										// In Aggressive mode, always consult __newindex.
+										bool keyExists = tbl.ContainsKey(key);
+
+										if (keyExists && mode != MetatableMode.Aggressive)
+										{
+											tbl.Set(key, value);
+										}
+										else
+										{
+											var newIndex = GetMetamethod(table, LuaMetatableEvent.NewIndex, mode);
+											if (newIndex.Type != LuaType.Nil && newIndex is LuaFunction func)
+											{
+												if (async)
+													await func.InvokeAsync(context, new[] { table, key, value });
+												else
+													func.Invoke(context, new[] { table, key, value });
+											}
+											else
+											{
+												tbl.Set(key, value);
+											}
+										}
+									}
+									else
+									{
+										// Not a table — try __newindex in Aggressive mode, otherwise error.
+										var newIndex = GetMetamethod(table, LuaMetatableEvent.NewIndex, mode);
+										if (newIndex.Type != LuaType.Nil && newIndex is LuaFunction func)
+										{
+											if (async)
+												await func.InvokeAsync(context, new[] { table, key, value });
+											else
+												func.Invoke(context, new[] { table, key, value });
+										}
+										else
+										{
+											throw new LuaRuntimeException("SETTABLE: operand A must be a table.");
+										}
+									}
+
 									pc++;
 									break;
 								}
+
 
 							case OpCode.GETGLOBAL:
 								{
@@ -334,120 +421,166 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.ADD:
 								{
-									registers[inst.A] = ArithOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										ArithOpKind.Add, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Add, metatableMode, context);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Add, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.SUB:
 								{
-									registers[inst.A] = ArithOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										ArithOpKind.Sub, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Sub, metatableMode, context);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Sub, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.MUL:
 								{
-									registers[inst.A] = ArithOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										ArithOpKind.Mul, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Mul, metatableMode, context);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Mul, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.DIV:
 								{
-									registers[inst.A] = ArithOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										ArithOpKind.Div, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Div, metatableMode, context);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Div, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.IDIV:
 								{
-									registers[inst.A] = ArithOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										ArithOpKind.IDiv, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.IDiv, metatableMode, context);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.IDiv, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.EQ:
 								{
-									registers[inst.A] = CompareOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										CompareOpKind.Eq, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Eq, metatableMode, context);
+									registers[inst.A] = mmResult.HasValue
+										? LuaBoolean.FromBoolean(mmResult.Value)
+										: CompareOp(lhs, rhs, CompareOpKind.Eq, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.LT:
 								{
-									registers[inst.A] = CompareOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										CompareOpKind.Lt, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									// Try __lt first, then fall back to __le on swapped operands (Lua 5.3 semantics).
+									var mmResult = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Lt, metatableMode, context);
+									if (mmResult.HasValue)
+									{
+										registers[inst.A] = LuaBoolean.FromBoolean(mmResult.Value);
+									}
+									else
+									{
+										var mmLeSwapped = await TryComparisonMetamethodAsync(rhs, lhs, LuaMetatableEvent.Le, metatableMode, context);
+										registers[inst.A] = mmLeSwapped.HasValue
+											? LuaBoolean.FromBoolean(!mmLeSwapped.Value)
+											: CompareOp(lhs, rhs, CompareOpKind.Lt, inst);
+									}
 									pc++;
 									break;
 								}
 
 							case OpCode.LE:
 								{
-									registers[inst.A] = CompareOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										CompareOpKind.Le, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									// Try __le first, then fall back to __lt on swapped operands (Lua 5.3 semantics).
+									var mmResult = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Le, metatableMode, context);
+									if (mmResult.HasValue)
+									{
+										registers[inst.A] = LuaBoolean.FromBoolean(mmResult.Value);
+									}
+									else
+									{
+										var mmLtSwapped = await TryComparisonMetamethodAsync(rhs, lhs, LuaMetatableEvent.Lt, metatableMode, context);
+										registers[inst.A] = mmLtSwapped.HasValue
+											? LuaBoolean.FromBoolean(!mmLtSwapped.Value)
+											: CompareOp(lhs, rhs, CompareOpKind.Le, inst);
+									}
 									pc++;
 									break;
 								}
 
 							case OpCode.GT:
 								{
-									registers[inst.A] = CompareOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										CompareOpKind.Gt, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									// GT: try __lt on swapped operands (b < a), then fallback.
+									var mmResult = await TryComparisonMetamethodAsync(rhs, lhs, LuaMetatableEvent.Lt, metatableMode, context);
+									if (mmResult.HasValue)
+									{
+										registers[inst.A] = LuaBoolean.FromBoolean(mmResult.Value);
+									}
+									else
+									{
+										var mmLe = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Le, metatableMode, context);
+										registers[inst.A] = mmLe.HasValue
+											? LuaBoolean.FromBoolean(!mmLe.Value)
+											: CompareOp(lhs, rhs, CompareOpKind.Gt, inst);
+									}
 									pc++;
 									break;
 								}
 
 							case OpCode.GE:
 								{
-									registers[inst.A] = CompareOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										CompareOpKind.Ge, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									// GE: try __le on swapped operands (b <= a), then fallback.
+									var mmResult = await TryComparisonMetamethodAsync(rhs, lhs, LuaMetatableEvent.Le, metatableMode, context);
+									if (mmResult.HasValue)
+									{
+										registers[inst.A] = LuaBoolean.FromBoolean(mmResult.Value);
+									}
+									else
+									{
+										var mmLt = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Lt, metatableMode, context);
+										registers[inst.A] = mmLt.HasValue
+											? LuaBoolean.FromBoolean(!mmLt.Value)
+											: CompareOp(lhs, rhs, CompareOpKind.Ge, inst);
+									}
 									pc++;
 									break;
 								}
 
 							case OpCode.POW:
 								{
-									registers[inst.A] = ArithOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										ArithOpKind.Pow, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Pow, metatableMode, context);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Pow, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.MOD:
 								{
-									registers[inst.A] = ArithOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										ArithOpKind.Mod, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Mod, metatableMode, context);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Mod, inst);
 									pc++;
 									break;
 								}
@@ -456,16 +589,17 @@ namespace AsyncLua.Interpreting
 								{
 									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
 									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
-									registers[inst.A] = ConcatOp(lhs, rhs, inst);
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Concat, metatableMode, context);
+									registers[inst.A] = mmResult ?? ConcatOp(lhs, rhs, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.UNM:
 								{
-									registers[inst.A] = UnmOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										inst);
+									var operand = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var mmResult = await TryUnaryMetamethodAsync(operand, LuaMetatableEvent.Unm, metatableMode, context);
+									registers[inst.A] = mmResult ?? UnmOp(operand, inst);
 									pc++;
 									break;
 								}
@@ -480,72 +614,78 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.LEN:
 								{
-									registers[inst.A] = LenOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										inst);
+									var operand = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var mmResult = await TryUnaryMetamethodAsync(operand, LuaMetatableEvent.Len, metatableMode, context);
+									registers[inst.A] = mmResult ?? LenOp(operand, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.NE:
 								{
-									registers[inst.A] = CompareOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										CompareOpKind.Ne, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									// NE: try __eq metamethod, then negate.
+									var mmResult = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Eq, metatableMode, context);
+									if (mmResult.HasValue)
+										registers[inst.A] = LuaBoolean.FromBoolean(!mmResult.Value);
+									else
+										registers[inst.A] = CompareOp(lhs, rhs, CompareOpKind.Ne, inst);
 									pc++;
 									break;
 								}
 
+
 							case OpCode.BAND:
 								{
-									registers[inst.A] = BitwiseOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										BitwiseOpKind.And, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.BAnd, metatableMode, context);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.And, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.BOR:
 								{
-									registers[inst.A] = BitwiseOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										BitwiseOpKind.Or, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.BOr, metatableMode, context);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Or, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.BXOR:
 								{
-									registers[inst.A] = BitwiseOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										BitwiseOpKind.Xor, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.BXor, metatableMode, context);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Xor, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.SHL:
 								{
-									registers[inst.A] = BitwiseOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										BitwiseOpKind.Shl, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.ShR, metatableMode, context);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Shl, inst);
 									pc++;
 									break;
 								}
 
 							case OpCode.SHR:
 								{
-									registers[inst.A] = BitwiseOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)),
-										GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC)),
-										BitwiseOpKind.Shr, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.ShR, metatableMode, context);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Shr, inst);
 									pc++;
 									break;
 								}
+
 
 							case OpCode.TRY:
 								{
@@ -575,11 +715,9 @@ namespace AsyncLua.Interpreting
 									throw new LuaRuntimeException(exValue.ToString());
 								}
 
-
 							case OpCode.CALL:
 								{
-									var func = registers[inst.A] as LuaFunction
-										?? throw new LuaRuntimeException("CALL: operand A must be a function.");
+									var func = registers[inst.A];
 									pc++;
 
 									int argCount = inst.B;
@@ -590,86 +728,133 @@ namespace AsyncLua.Interpreting
 									for (int i = 0; i < argCount; i++)
 										args[i] = registers[inst.A + 1 + i];
 
-									// ── Async function: launch and return a LuaTask immediately ──
-									if (func.IsAsync)
+									// ── Direct function call (bytecode or callback) ──
+									if (func is LuaFunction luaFunc)
 									{
-										var csharpTask = func.InvokeAsync(context, args);
-										registers[inst.A] = LuaTask.FromTask(csharpTask);
-										// pc already advanced; execution continues without blocking.
+										// ── Async function: launch and return a LuaTask immediately ──
+										if (luaFunc.IsAsync)
+										{
+											var csharpTask = luaFunc.InvokeAsync(context, args);
+											registers[inst.A] = LuaTask.FromTask(csharpTask);
+											// pc already advanced; execution continues without blocking.
+											break;
+										}
+
+										// ── Synchronous bytecode function ──
+										if (luaFunc is LuaNativeFunction nativeFunc)
+										{
+											// Push a new call frame for bytecode execution.
+											if (callStack.Count >= maxStackSize)
+												throw new LuaRuntimeException("Call stack overflow.");
+
+											callStack.Push(frame);
+											var newFrame = new CallStackFrame(
+												nativeFunc.Prototype,
+												returnPC: pc,
+												resultBase: inst.A,
+												resultCount: inst.C)
+											{
+												Closure = nativeFunc
+											};
+
+											// Copy arguments to new frame registers.
+											var newRegs = newFrame.Registers;
+											int copyCount = Math.Min(argCount, newRegs.Length);
+											for (int i = 0; i < copyCount; i++)
+												newRegs[i] = args[i];
+											// Pad rest with nil.
+											for (int i = copyCount; i < newRegs.Length; i++)
+												newRegs[i] = LuaNil.Instance;
+											newFrame.RegisterTop = copyCount;
+
+											// If the function is vararg, store extra arguments in VarArgs.
+											if (nativeFunc.Prototype.IsVararg)
+											{
+												byte fixedCount = nativeFunc.Prototype.ParameterCount;
+												int extraCount = argCount - fixedCount;
+												if (extraCount > 0)
+												{
+													var varArgs = new LuaValue[extraCount];
+													for (int i = 0; i < extraCount; i++)
+														varArgs[i] = args[fixedCount + i];
+													newFrame.VarArgs = varArgs;
+												}
+												else
+												{
+													newFrame.VarArgs = Array.Empty<LuaValue>();
+												}
+											}
+											frame = newFrame;
+											registers = newRegs;
+											constants = nativeFunc.Prototype.Constants;
+											instructions = nativeFunc.Prototype.Instructions;
+											pc = 0;
+										}
+										else
+										{
+										// ── Synchronous C# callback function ──
+											LuaTuple results;
+											if (async)
+												results = await luaFunc.InvokeAsync(context, args);
+											else
+												results = luaFunc.Invoke(context, args);
+
+											// Store results in R[A]..R[A + effectiveWant - 1].
+											// C=0 means "accept all results" (Lua multiple-return convention).
+											int effectiveWant = wantResults == 0 ? results.Count : wantResults;
+											int storeCount = Math.Min(results.Count, effectiveWant);
+											for (int i = 0; i < storeCount; i++)
+												registers[inst.A + i] = results[i];
+											// Pad with nil if fewer results than expected.
+											for (int i = storeCount; i < effectiveWant; i++)
+												registers[inst.A + i] = LuaNil.Instance;
+
+											// Update RegisterTop for RETURN B=0 to know how many values are live.
+											int top = inst.A + effectiveWant;
+											if (top > frame.RegisterTop)
+												frame.RegisterTop = top;
+										}
 										break;
 									}
 
-									// ── Synchronous bytecode function ──
-									if (func is LuaNativeFunction nativeFunc)
+									// ── Not a function — try __call metamethod ──
+									var mode = context.Settings.MetatableMode;
+									var call = GetMetamethod(func, LuaMetatableEvent.Call, mode);
+									if (call.Type != LuaType.Nil && call is LuaFunction callFunc)
 									{
-										// Push a new call frame for bytecode execution.
-										if (callStack.Count >= maxStackSize)
-											throw new LuaRuntimeException("Call stack overflow.");
+										// Build arguments: metamethod receives (func, ...originalArgs).
+										var callArgs = new LuaValue[1 + argCount];
+										callArgs[0] = func;
+										for (int i = 0; i < argCount; i++)
+											callArgs[1 + i] = args[i];
 
-										callStack.Push(frame);
-										var newFrame = new CallStackFrame(
-											nativeFunc.Prototype,
-											returnPC: pc,
-											resultBase: inst.A,
-											resultCount: inst.C)
-										{
-											Closure = nativeFunc
-										};
+										LuaTuple results;
+										if (async)
+											results = await callFunc.InvokeAsync(context, callArgs);
+										else
+											results = callFunc.Invoke(context, callArgs);
 
-										// Copy arguments to new frame registers.
-										var newRegs = newFrame.Registers;
-										int copyCount = Math.Min(argCount, newRegs.Length);
-										for (int i = 0; i < copyCount; i++)
-											newRegs[i] = args[i];
-										// Pad rest with nil.
-										for (int i = copyCount; i < newRegs.Length; i++)
-											newRegs[i] = LuaNil.Instance;
-										newFrame.RegisterTop = copyCount;
+										// C=0 means "accept all results" (Lua multiple-return convention).
+										int effectiveWant = wantResults == 0 ? results.Count : wantResults;
+										int storeCount = Math.Min(results.Count, effectiveWant);
+										for (int i = 0; i < storeCount; i++)
+											registers[inst.A + i] = results[i];
+										for (int i = storeCount; i < effectiveWant; i++)
+											registers[inst.A + i] = LuaNil.Instance;
 
-										// Switch to new frame.
-
-										// If the function is vararg, store extra arguments in VarArgs.
-										if (nativeFunc.Prototype.IsVararg)
-										{
-											byte fixedCount = nativeFunc.Prototype.ParameterCount;
-											int extraCount = argCount - fixedCount;
-											if (extraCount > 0)
-											{
-												var varArgs = new LuaValue[extraCount];
-												for (int i = 0; i < extraCount; i++)
-													varArgs[i] = args[fixedCount + i];
-												newFrame.VarArgs = varArgs;
-											}
-											else
-											{
-												newFrame.VarArgs = Array.Empty<LuaValue>();
-											}
-										}
-										frame = newFrame;
-										registers = newRegs;
-										constants = nativeFunc.Prototype.Constants;
-										instructions = nativeFunc.Prototype.Instructions;
-										pc = 0;
+										// Update RegisterTop for RETURN B=0 to know how many values are live.
+										int top = inst.A + effectiveWant;
+										if (top > frame.RegisterTop)
+											frame.RegisterTop = top;
 									}
 									else
 									{
-										// ── Synchronous C# callback function ──
-										LuaTuple results;
-										if (async)
-											results = await func.InvokeAsync(context, args);
-										else
-											results = func.Invoke(context, args);
-
-										// Store results in R[A]..R[A + wantResults - 1].
-										int storeCount = Math.Min(results.Count, wantResults);
-										for (int i = 0; i < storeCount; i++)
-											registers[inst.A + i] = results[i];
-										// Pad with nil if fewer results than expected.
-										for (int i = storeCount; i < wantResults; i++)
-											registers[inst.A + i] = LuaNil.Instance;
+										throw new LuaRuntimeException("CALL: operand A must be a function or have __call metamethod.");
 									}
+
 									break;
 								}
+
 
 							case OpCode.RETURN:
 								{
@@ -702,6 +887,11 @@ namespace AsyncLua.Interpreting
 										// Pad with nil.
 										for (int i = resultCount; i < effectiveWant; i++)
 											callerFrame.Registers[destBase + i] = LuaNil.Instance;
+
+										// Update RegisterTop for the caller's RETURN B=0 to see these results.
+										int top = destBase + effectiveWant;
+										if (top > callerFrame.RegisterTop)
+											callerFrame.RegisterTop = top;
 
 										// Restore caller state.
 										pc = frame.ReturnPC;
@@ -882,6 +1072,210 @@ namespace AsyncLua.Interpreting
 			}
 		}
 
+		// ── Metamethod helpers ─────────────────────────────────────────
+
+		/// <summary>
+		/// Looks up a metamethod handler for the specified event on the given value,
+		/// respecting the current <see cref="MetatableMode"/>.
+		/// </summary>
+		/// <param name="value">The value whose metatable to inspect.</param>
+		/// <param name="evt">The metamethod event to look up.</param>
+		/// <param name="mode">The current metatable resolution mode.</param>
+		/// <returns>
+		/// The metamethod handler, or <see cref="LuaNil.Instance"/> if no suitable handler exists.
+		/// </returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static LuaValue GetMetamethod(LuaValue value, LuaMetatableEvent evt, MetatableMode mode)
+		{
+			// In Aggressive mode, any type with a metatable can yield a metamethod.
+			if (mode == MetatableMode.Aggressive)
+			{
+				var mt = value.Metatable;
+				if (mt != null && mt.HasEvent(evt))
+					return mt.Get(evt);
+				return LuaNil.Instance;
+			}
+
+			// Default (Relaxed) mode: only tables (and userdata) are checked.
+			if (value.Type == LuaType.Table)
+			{
+				var mt = value.Metatable;
+				if (mt != null && mt.HasEvent(evt))
+					return mt.Get(evt);
+			}
+
+			return LuaNil.Instance;
+		}
+
+		/// <summary>
+		/// Attempts to invoke a binary metamethod synchronously.
+		/// </summary>
+		private static LuaValue? TryBinaryMetamethod(
+			LuaValue lhs, LuaValue rhs, LuaMetatableEvent evt, MetatableMode mode,
+			LuaCallingContext context)
+		{
+			// Try left operand first.
+			var mmLhs = GetMetamethod(lhs, evt, mode);
+			if (mmLhs.Type != LuaType.Nil)
+			{
+				if (mmLhs is LuaFunction func)
+				{
+					// Temporarily strip metatables to prevent infinite recursion
+					// when the metamethod itself uses the same operator on the operands.
+					var savedLhs = lhs.Metatable;
+					var savedRhs = rhs.Metatable;
+					try
+					{
+						lhs.Metatable = null;
+						rhs.Metatable = null;
+						var result = func.Invoke(context, new[] { lhs, rhs });
+						return result.Count > 0 ? result[0] : LuaNil.Instance;
+					}
+					finally
+					{
+						lhs.Metatable = savedLhs;
+						rhs.Metatable = savedRhs;
+					}
+				}
+			}
+
+			// Then try right operand.
+			var mmRhs = GetMetamethod(rhs, evt, mode);
+			if (mmRhs.Type != LuaType.Nil)
+			{
+				if (mmRhs is LuaFunction func)
+				{
+					var savedLhs = lhs.Metatable;
+					var savedRhs = rhs.Metatable;
+					try
+					{
+						lhs.Metatable = null;
+						rhs.Metatable = null;
+						var result = func.Invoke(context, new[] { lhs, rhs });
+						return result.Count > 0 ? result[0] : LuaNil.Instance;
+					}
+					finally
+					{
+						lhs.Metatable = savedLhs;
+						rhs.Metatable = savedRhs;
+					}
+				}
+			}
+
+			return null;
+		}
+
+		/// <summary>
+		/// Attempts to invoke a binary metamethod (e.g., <c>__add</c>, <c>__sub</c>) asynchronously.
+		/// </summary>
+		private static Task<LuaValue?> TryBinaryMetamethodAsync(
+			LuaValue lhs, LuaValue rhs, LuaMetatableEvent evt, MetatableMode mode,
+			LuaCallingContext context)
+		{
+			// Fast path: just call the sync version and wrap in Task.
+			return Task.FromResult(TryBinaryMetamethod(lhs, rhs, evt, mode, context));
+		}
+
+		/// <summary>
+		/// Attempts to invoke a unary metamethod synchronously.
+		/// </summary>
+		private static LuaValue? TryUnaryMetamethod(
+			LuaValue operand, LuaMetatableEvent evt, MetatableMode mode,
+			LuaCallingContext context)
+		{
+			var mm = GetMetamethod(operand, evt, mode);
+			if (mm.Type != LuaType.Nil && mm is LuaFunction func)
+			{
+				// Temporarily strip metatable to prevent infinite recursion
+				// when the metamethod itself uses the same operator on the operand.
+				var saved = operand.Metatable;
+				try
+				{
+					operand.Metatable = null;
+					var result = func.Invoke(context, new[] { operand });
+					return result.Count > 0 ? result[0] : LuaNil.Instance;
+				}
+				finally
+				{
+					operand.Metatable = saved;
+				}
+			}
+			return null;
+		}
+
+		/// <summary>
+		/// Attempts to invoke a unary metamethod asynchronously.
+		/// </summary>
+		private static Task<LuaValue?> TryUnaryMetamethodAsync(
+			LuaValue operand, LuaMetatableEvent evt, MetatableMode mode,
+			LuaCallingContext context)
+		{
+			return Task.FromResult(TryUnaryMetamethod(operand, evt, mode, context));
+		}
+
+		/// <summary>
+		/// Attempts to invoke a comparison metamethod synchronously.
+		/// </summary>
+		private static bool? TryComparisonMetamethod(
+			LuaValue lhs, LuaValue rhs, LuaMetatableEvent evt, MetatableMode mode,
+			LuaCallingContext context)
+		{
+			// Helper to safely invoke a comparison metamethod, stripping metatables
+			// to prevent infinite recursion.
+			bool? InvokeSafely(LuaFunction func)
+			{
+				var savedLhs = lhs.Metatable;
+				var savedRhs = rhs.Metatable;
+				try
+				{
+					lhs.Metatable = null;
+					rhs.Metatable = null;
+					var result = func.Invoke(context, new[] { lhs, rhs });
+					return result.Count > 0 && result[0].ToBoolean();
+				}
+				finally
+				{
+					lhs.Metatable = savedLhs;
+					rhs.Metatable = savedRhs;
+				}
+			}
+
+			// In Default mode, only invoke if both operands share the same metamethod.
+			if (mode == MetatableMode.Default)
+			{
+				var mmLhs = GetMetamethod(lhs, evt, mode);
+				var mmRhs = GetMetamethod(rhs, evt, mode);
+				if (mmLhs.Type != LuaType.Nil && ReferenceEquals(mmLhs, mmRhs))
+				{
+					if (mmLhs is LuaFunction func)
+						return InvokeSafely(func);
+				}
+				return null;
+			}
+
+			// Aggressive mode: try left first, then right.
+			var mmLeft = GetMetamethod(lhs, evt, MetatableMode.Aggressive);
+			if (mmLeft.Type != LuaType.Nil && mmLeft is LuaFunction funcLeft)
+				return InvokeSafely(funcLeft);
+
+			var mmRight = GetMetamethod(rhs, evt, MetatableMode.Aggressive);
+			if (mmRight.Type != LuaType.Nil && mmRight is LuaFunction funcRight)
+				return InvokeSafely(funcRight);
+
+			return null;
+		}
+
+		/// <summary>
+		/// Attempts to invoke a comparison metamethod asynchronously.
+		/// </summary>
+		private static Task<bool?> TryComparisonMetamethodAsync(
+			LuaValue lhs, LuaValue rhs, LuaMetatableEvent evt, MetatableMode mode,
+			LuaCallingContext context)
+		{
+			return Task.FromResult(TryComparisonMetamethod(lhs, rhs, evt, mode, context));
+		}
+
+
 		// ── Operand resolution ────────────────────────────────────────
 
 		/// <summary>
@@ -891,7 +1285,18 @@ namespace AsyncLua.Interpreting
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		private static LuaValue GetRK(LuaValue[] registers, LuaValue[] constants, ushort value, bool isConstant)
 		{
-			return isConstant ? constants[value] : registers[value];
+			if (isConstant)
+			{
+				if (value >= constants.Length)
+					throw new LuaRuntimeException($"GetRK: constant index {value} out of range (constants length={constants.Length})");
+				return constants[value];
+			}
+			else
+			{
+				if (value >= registers.Length)
+					throw new LuaRuntimeException($"GetRK: register index {value} out of range (registers length={registers.Length})");
+				return registers[value];
+			}
 		}
 
 		/// <summary>
