@@ -108,8 +108,8 @@ namespace AsyncLua
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
-			var prototype = Compiling.Compiler.Compile(block, sourceName: sourceName);
-			return Interpreting.Interpreter.Call(prototype, CreateContext());
+			var prototype = Compiling.AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			return Interpreting.AsyncLuaInterpreter.Call(prototype, CreateContext());
 		}
 
 		/// <summary>
@@ -130,8 +130,8 @@ namespace AsyncLua
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
-			var prototype = Compiling.Compiler.Compile(block, sourceName: sourceName);
-			return await Interpreting.Interpreter.CallAsync(prototype, CreateContext());
+			var prototype = Compiling.AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			return await Interpreting.AsyncLuaInterpreter.CallAsync(prototype, CreateContext());
 		}
 	}
 }

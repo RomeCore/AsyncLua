@@ -50,7 +50,7 @@ public class ClosureInterpreterTests
 		innerPrototypes: new[] { innerProto });
 
 		// Execute outer, get closure.
-		var closure = Interpreter.Call(outerProto, Context());
+		var closure = AsyncLuaInterpreter.Call(outerProto, Context());
 		var func = Assert.IsType<LuaNativeFunction>(closure.First);
 
 		// Verify upvalue was captured.
@@ -66,7 +66,7 @@ public class ClosureInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { func });
 
-		var result = Interpreter.Call(callProto, Context());
+		var result = AsyncLuaInterpreter.Call(callProto, Context());
 		Assert.Equal(11.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -108,7 +108,7 @@ public class ClosureInterpreterTests
 		}, maxRegSize: 6, constants: new LuaValue[] { new LuaNumber(10), new LuaNumber(99) },
 		innerPrototypes: new[] { innerProto });
 
-		var result = Interpreter.Call(outerProto, Context());
+		var result = AsyncLuaInterpreter.Call(outerProto, Context());
 		// Both closures share the same upvalue: when R[1] becomes 99, both see 99.
 		// f1() = 99, f2() = 99, 99+99 = 198.
 		Assert.Equal(198.0, Assert.IsType<LuaNumber>(result.First).Value);
@@ -155,7 +155,7 @@ public class ClosureInterpreterTests
 		}, maxRegSize: 5, constants: new LuaValue[] { new LuaNumber(0) },
 		innerPrototypes: new[] { innerProto });
 
-		var result = Interpreter.Call(outerProto, Context());
+		var result = AsyncLuaInterpreter.Call(outerProto, Context());
 		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 }

@@ -11,7 +11,7 @@ namespace AsyncLua.Interpreting
 	/// <summary>
 	/// Executes compiled Lua function prototypes using a register-based VM.
 	/// </summary>
-	public static class Interpreter
+	public static class AsyncLuaInterpreter
 	{
 		/// <summary>
 		/// Default maximum call stack depth.

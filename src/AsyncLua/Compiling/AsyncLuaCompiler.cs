@@ -11,12 +11,12 @@ namespace AsyncLua.Compiling
 {
 	/// <summary>
 	/// Compiles a Lua AST (<see cref="BlockNode"/>) into a <see cref="FunctionPrototype"/>
-	/// ready for execution by the <see cref="Interpreter"/>.
+	/// ready for execution by the <see cref="AsyncLuaInterpreter"/>.
 	/// </summary>
 	/// <remarks>
 	/// <para>
-	/// A new <see cref="Compiler"/> instance is created for each function (including the top-level
-	/// chunk). Inner functions are compiled recursively by creating child <see cref="Compiler"/>
+	/// A new <see cref="AsyncLuaCompiler"/> instance is created for each function (including the top-level
+	/// chunk). Inner functions are compiled recursively by creating child <see cref="AsyncLuaCompiler"/>
 	/// instances linked via <see cref="_parent"/>.
 	/// </para>
 	/// <para>
@@ -25,7 +25,7 @@ namespace AsyncLua.Compiling
 	/// performed (SPARC-style allocation).
 	/// </para>
 	/// </remarks>
-	public class Compiler
+	public class AsyncLuaCompiler
 	{
 		private readonly CompilerSettings _settings;
 
@@ -53,7 +53,7 @@ namespace AsyncLua.Compiling
 
 		// ── Function metadata ───────────────────────────────────────────
 
-		private readonly Compiler? _parent;
+		private readonly AsyncLuaCompiler? _parent;
 		private readonly bool _isAsync;
 		private readonly int _parameterCount;
 		private readonly bool _isVararg;
@@ -70,7 +70,7 @@ namespace AsyncLua.Compiling
 		public static FunctionPrototype Compile(BlockNode block, CompilerSettings? settings = null, string? sourceName = null)
 		{
 			settings ??= new CompilerSettings();
-			var compiler = new Compiler(settings, parent: null, isAsync: false, parameterCount: 0,
+			var compiler = new AsyncLuaCompiler(settings, parent: null, isAsync: false, parameterCount: 0,
 				isVararg: false, sourceName: sourceName);
 			compiler.CompileBlock(block);
 			compiler.EmitReturn(); // implicit return at end of chunk
@@ -80,9 +80,9 @@ namespace AsyncLua.Compiling
 
 		// ── Constructor ─────────────────────────────────────────────────
 
-		private Compiler(
+		private AsyncLuaCompiler(
 			CompilerSettings settings,
-			Compiler? parent,
+			AsyncLuaCompiler? parent,
 			bool isAsync,
 			int parameterCount,
 			bool isVararg,
@@ -595,7 +595,7 @@ namespace AsyncLua.Compiling
 					GetConstantIndex(LuaNil.Instance), flags: OpFlags.KB);
 			}
 
-			var childCompiler = new Compiler(
+			var childCompiler = new AsyncLuaCompiler(
 				_settings,
 				parent: this,
 				isAsync: node.IsAsync,
@@ -917,7 +917,7 @@ namespace AsyncLua.Compiling
 
 		private void CompileFunctionExpression(FunctionDeclExpressionNode node, int destReg)
 		{
-			var childCompiler = new Compiler(
+			var childCompiler = new AsyncLuaCompiler(
 				_settings,
 				parent: this,
 				isAsync: node.IsAsync,

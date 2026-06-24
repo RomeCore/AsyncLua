@@ -15,17 +15,17 @@ public class CompilerIntegrationAdvancedTests
 	{
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var prototype = Compiler.Compile(block, sourceName: "test");
-		return Interpreter.Call(prototype, context ?? new LuaState().CreateContext());
+		var prototype = AsyncLuaCompiler.Compile(block, sourceName: "test");
+		return AsyncLuaInterpreter.Call(prototype, context ?? new LuaState().CreateContext());
 	}
 
 	private static async Task<LuaTuple> CompileAndExecuteAsync(string code, LuaState? state = null)
 	{
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var prototype = Compiler.Compile(block, sourceName: "test");
+		var prototype = AsyncLuaCompiler.Compile(block, sourceName: "test");
 		var ctx = (state ?? new LuaState()).CreateContext();
-		return await Interpreter.CallAsync(prototype, ctx);
+		return await AsyncLuaInterpreter.CallAsync(prototype, ctx);
 	}
 
 	// ═══════════════════════════════════════════════════════════════
@@ -773,12 +773,12 @@ public class CompilerIntegrationAdvancedTests
 		var state = new LuaState();
 		var ctx = state.CreateContext();
 
-		Interpreter.Call(
-			Compiler.Compile(new AsyncLuaParser().Parse("counter = 100"), sourceName: "test"),
+		AsyncLuaInterpreter.Call(
+			AsyncLuaCompiler.Compile(new AsyncLuaParser().Parse("counter = 100"), sourceName: "test"),
 			ctx);
 
-		var result = Interpreter.Call(
-			Compiler.Compile(new AsyncLuaParser().Parse("return counter"), sourceName: "test"),
+		var result = AsyncLuaInterpreter.Call(
+			AsyncLuaCompiler.Compile(new AsyncLuaParser().Parse("return counter"), sourceName: "test"),
 			ctx);
 
 		Assert.Equal(100.0, Assert.IsType<LuaNumber>(result.First).Value);

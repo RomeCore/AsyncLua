@@ -166,7 +166,7 @@ namespace AsyncLua.Interpreting
 		/// Results are stored in <c>R[A]..R[A+C-1]</c> (padded with <see langword="nil"/>).
 		/// If <c>C == 0</c>, all task results are stored (up to available registers).
 		/// </para>
-		/// Only valid when the interpreter is running in async mode (<see cref="Interpreter.CallAsync"/>).
+		/// Only valid when the interpreter is running in async mode (<see cref="AsyncLuaInterpreter.CallAsync"/>).
 		/// </summary>
 		AWAIT,
 

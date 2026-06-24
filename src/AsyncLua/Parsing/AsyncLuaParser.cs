@@ -890,6 +890,36 @@ namespace AsyncLua.Parsing
 					}
 				});
 
+			// ── AsyncLua extensions: try-catch-finally ─────────────────
+
+			builder.CreateRule("try_catch_finally_statement")
+				.Keyword("try")
+				.Rule("block")
+				.Optional(b => b
+					.Keyword("catch")
+					.Rule("block")
+				)
+				.Optional(b => b
+					.Keyword("finally")
+					.Rule("block")
+				)
+				.Keyword("end")
+				.Transform(v =>
+				{
+					var catchBlock = v.Children[2].Length > 0 ? v.Children[2].Children[1].GetValue<BlockNode>() : null;
+					var finallyBlock = v.Children[3].Length > 0 ? v.Children[3].Children[1].GetValue<BlockNode>() : null;
+
+					if (catchBlock == null && finallyBlock == null)
+						throw new SemanticException(v, "try block must have at least catch or finally block");
+
+					return new TryCatchFinallyNode
+					{
+						TryBody = v.GetValue<BlockNode>(1),
+						CatchBody = catchBlock,
+						FinallyBody = finallyBlock
+					};
+				});
+
 			// ── Assignment or call statement ──────────────────────────
 
 			builder.CreateRule("augassignment_statement")
@@ -977,6 +1007,7 @@ namespace AsyncLua.Parsing
 					b => b.Rule("do_statement"),
 					b => b.Rule("lock_statement"),
 					b => b.Rule("await_statement"),
+					b => b.Rule("try_catch_finally_statement"),
 					b => b.Rule("augassignment_statement"),
 					b => b.Rule("assignment_or_call_statement"));
 		}

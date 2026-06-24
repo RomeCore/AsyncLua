@@ -49,7 +49,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(0),  // K[3] = sum init
         });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(15.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -75,7 +75,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(0),   // K[3]
         });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(15.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -101,7 +101,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(0),   // K[3]
         });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(0.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -162,7 +162,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(0),   // K[2]
         });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(15.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -205,7 +205,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(40),  // K[3]
         }, innerPrototypes: new[] { innerProto });
 
-		var result = Interpreter.Call(outerProto, Context());
+		var result = AsyncLuaInterpreter.Call(outerProto, Context());
 		Assert.Equal(20.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -239,7 +239,7 @@ public class ControlFlowInterpreterTests
 			new LuaNumber(1),   // K[0]
         }, innerPrototypes: new[] { innerProto });
 
-		var result = Interpreter.Call(outerProto, Context());
+		var result = AsyncLuaInterpreter.Call(outerProto, Context());
 		Assert.IsType<LuaNil>(result.First);
 	}
 
@@ -277,7 +277,7 @@ public class ControlFlowInterpreterTests
             new LuaNumber(30),  // K[2]
         }, innerPrototypes: new[] { innerProto });
 
-		var result = Interpreter.Call(outerProto, Context());
+		var result = AsyncLuaInterpreter.Call(outerProto, Context());
 		Assert.Equal(20.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 }

@@ -35,7 +35,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(99) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -53,7 +53,7 @@ public class JumpInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -79,7 +79,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),   // [5]
         }, maxRegSize: 2, constants: new LuaValue[] { new LuaNumber(42), new LuaNumber(99) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -97,7 +97,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 2, constants: new LuaValue[] { new LuaNumber(42) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -113,7 +113,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 2, constants: new LuaValue[] { LuaBoolean.False, new LuaNumber(42) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -131,7 +131,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),   // [5]
         }, maxRegSize: 2, constants: new LuaValue[] { new LuaNumber(0), new LuaNumber(99) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(0.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -149,7 +149,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 2, constants: new LuaValue[] { new LuaString(""), new LuaString("nope"), new LuaString("yes") });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal("yes", Assert.IsType<LuaString>(result.First).Value);
 	}
 
@@ -177,7 +177,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),   // [5]
         }, maxRegSize: 2, constants: new LuaValue[] { LuaBoolean.True, new LuaNumber(42), new LuaNumber(99) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -194,7 +194,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -210,7 +210,7 @@ public class JumpInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 2, constants: new LuaValue[] { LuaBoolean.True, new LuaNumber(42) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -243,7 +243,7 @@ public class JumpInterpreterTests
 			new LuaNumber(1),
 		});
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(0.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 }

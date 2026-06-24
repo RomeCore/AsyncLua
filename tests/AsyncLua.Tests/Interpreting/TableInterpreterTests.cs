@@ -32,7 +32,7 @@ public class TableInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1);
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.IsType<LuaTable>(result.First);
 	}
 
@@ -45,7 +45,7 @@ public class TableInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1);
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		var table = Assert.IsType<LuaTable>(result.First);
 		Assert.Equal(0, table.Count);
 	}
@@ -68,7 +68,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaString("key"), new LuaNumber(42) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -88,7 +88,7 @@ public class TableInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaString("k"), new LuaNumber(10), new LuaNumber(99) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(99.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -104,7 +104,7 @@ public class TableInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaString("nope") });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.IsType<LuaNil>(result.First);
 	}
 
@@ -124,7 +124,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 2, constants: new LuaValue[] { new LuaString("key"), new LuaNumber(42) });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -139,7 +139,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaNumber(42), new LuaString("key") });
 
-		Assert.Throws<LuaRuntimeException>(() => Interpreter.Call(proto, Context()));
+		Assert.Throws<LuaRuntimeException>(() => AsyncLuaInterpreter.Call(proto, Context()));
 	}
 
 	// ── GETGLOBAL / SETGLOBAL ─────────────────────────────────────────
@@ -159,7 +159,7 @@ public class TableInterpreterTests
             new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaString("x"), new LuaNumber(42) });
 
-		var result = Interpreter.Call(proto, g);
+		var result = AsyncLuaInterpreter.Call(proto, g);
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -173,7 +173,7 @@ public class TableInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaString("does_not_exist") });
 
-		var result = Interpreter.Call(proto, Context());
+		var result = AsyncLuaInterpreter.Call(proto, Context());
 		Assert.IsType<LuaNil>(result.First);
 	}
 
@@ -195,7 +195,7 @@ public class TableInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaString("x"), new LuaNumber(10), new LuaNumber(99) });
 
-		var result = Interpreter.Call(proto, g);
+		var result = AsyncLuaInterpreter.Call(proto, g);
 		Assert.Equal(99.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -212,7 +212,7 @@ public class TableInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaString("shared"), new LuaNumber(77) });
 
-		Interpreter.Call(proto1, g);
+		AsyncLuaInterpreter.Call(proto1, g);
 
 		// Second call: R[0] = _G["shared"]
 		var proto2 = MakeProto(new[]
@@ -221,7 +221,7 @@ public class TableInterpreterTests
 			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { new LuaString("shared") });
 
-		var result = Interpreter.Call(proto2, g);
+		var result = AsyncLuaInterpreter.Call(proto2, g);
 		Assert.Equal(77.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 }

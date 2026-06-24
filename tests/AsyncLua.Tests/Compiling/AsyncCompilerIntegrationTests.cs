@@ -11,9 +11,9 @@ public class AsyncCompilerIntegrationTests
 	{
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var prototype = Compiler.Compile(block, sourceName: "test");
+		var prototype = AsyncLuaCompiler.Compile(block, sourceName: "test");
 		var ctx = (state ?? new LuaState()).CreateContext();
-		return await Interpreter.CallAsync(prototype, ctx);
+		return await AsyncLuaInterpreter.CallAsync(prototype, ctx);
 	}
 
 	// ═══════════════════════════════════════════════════════════════
@@ -94,9 +94,9 @@ public class AsyncCompilerIntegrationTests
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var prototype = Compiler.Compile(block, sourceName: "test");
+		var prototype = AsyncLuaCompiler.Compile(block, sourceName: "test");
 
-		var executeTask = Interpreter.CallAsync(prototype, ctx);
+		var executeTask = AsyncLuaInterpreter.CallAsync(prototype, ctx);
 
 		// Give interpreter time to hit the first await.
 		await Task.Delay(50);
@@ -286,9 +286,9 @@ public class AsyncCompilerIntegrationTests
 
 			var parser = new AsyncLuaParser();
 			var block = parser.Parse(code);
-			var prototype = Compiler.Compile(block, sourceName: "test");
+			var prototype = AsyncLuaCompiler.Compile(block, sourceName: "test");
 
-			var executeTask = Interpreter.CallAsync(prototype, ctx);
+			var executeTask = AsyncLuaInterpreter.CallAsync(prototype, ctx);
 			await Task.Delay(50);
 
 			// Both tasks pending — non-blocking calls.
@@ -449,9 +449,9 @@ public class AsyncCompilerIntegrationTests
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var proto = Compiler.Compile(block, sourceName: "test");
+		var proto = AsyncLuaCompiler.Compile(block, sourceName: "test");
 
-		var executeTask = Interpreter.CallAsync(proto, ctx);
+		var executeTask = AsyncLuaInterpreter.CallAsync(proto, ctx);
 		await Task.Delay(50);
 
 		// Both tasks should be pending — CALL was non-blocking.
@@ -542,9 +542,9 @@ public class AsyncCompilerIntegrationTests
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var proto = Compiler.Compile(block, sourceName: "test");
+		var proto = AsyncLuaCompiler.Compile(block, sourceName: "test");
 
-		var executeTask = Interpreter.CallAsync(proto, ctx);
+		var executeTask = AsyncLuaInterpreter.CallAsync(proto, ctx);
 		await Task.Delay(50);
 
 		var sw = System.Diagnostics.Stopwatch.StartNew();

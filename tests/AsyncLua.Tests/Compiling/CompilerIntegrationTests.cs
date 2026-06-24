@@ -11,16 +11,16 @@ public class CompilerIntegrationTests
 	{
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var prototype = Compiler.Compile(block, sourceName: "test");
-		return Interpreter.Call(prototype, context ?? new LuaState().CreateContext());
+		var prototype = AsyncLuaCompiler.Compile(block, sourceName: "test");
+		return AsyncLuaInterpreter.Call(prototype, context ?? new LuaState().CreateContext());
 	}
 
 	private static async Task<LuaTuple> CompileAndExecuteAsync(string code, LuaCallingContext? context = null)
 	{
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
-		var prototype = Compiler.Compile(block, sourceName: "test");
-		return await Interpreter.CallAsync(prototype, context ?? new LuaState().CreateContext());
+		var prototype = AsyncLuaCompiler.Compile(block, sourceName: "test");
+		return await AsyncLuaInterpreter.CallAsync(prototype, context ?? new LuaState().CreateContext());
 	}
 
 	// ── Literals ──────────────────────────────────────────────────────

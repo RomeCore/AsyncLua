@@ -7,7 +7,7 @@ namespace AsyncLua.Values
 {
 	/// <summary>
 	/// A Lua function compiled from Lua source code. Wraps a <see cref="FunctionPrototype"/>
-	/// and captured upvalues, and is executed by the <see cref="Interpreter"/>.
+	/// and captured upvalues, and is executed by the <see cref="AsyncLuaInterpreter"/>.
 	/// </summary>
 	/// <remarks>
 	/// <para>
@@ -72,7 +72,7 @@ namespace AsyncLua.Values
 				? new LuaCallingContext(context.State, Environment)
 				: context;
 
-			return Interpreter.ExecuteAsync(Prototype, effectiveContext, args, closure: this);
+			return AsyncLuaInterpreter.ExecuteAsync(Prototype, effectiveContext, args, closure: this);
 		}
 
 		/// <inheritdoc />
