@@ -183,8 +183,9 @@ namespace AsyncLua.Compiling
 				actualValueRegs[i] = destReg;
 				CompileExpression(node.Values[i], destReg);
 
-				// If there are more targets than values, and the value is a function call
-				// or vararg, expand it to fill the targets (standard Lua multi-assignment).
+				// If there are more targets than values, and the value is a function call,
+				// vararg, or await expression, expand it to fill the targets
+				// (standard Lua multi-assignment).
 				if (valueCount == 1 && targetCount > 1)
 				{
 					var lastVal = node.Values[i];
@@ -193,13 +194,17 @@ namespace AsyncLua.Compiling
 						// Patch the CALL to expect targetCount results (exact fit).
 						PatchLastCallToExact((ushort)targetCount);
 					}
+					// For AwaitExpressionNode, the AWAIT already uses C=0 (expand all),
+					// so no patching is needed.
 				}
 			}
 
 			// If the first multi-return value needs headroom (C=0 on CALL),
 			// pre-allocate extra slots to avoid overwriting destination registers.
-			if (valueCount == 1 && targetCount > 1 &&
-				(node.Values[0] is FunctionCallNode || node.Values[0] is VarArgumentNode))
+			bool isMultiReturnValue = valueCount == 1 && targetCount > 1 &&
+				(node.Values[0] is FunctionCallNode || node.Values[0] is VarArgumentNode ||
+				 node.Values[0] is AwaitExpressionNode);
+			if (isMultiReturnValue)
 			{
 				while (_nextRegister < actualValueRegs[0] + targetCount + 8)
 					AllocateRegister();
@@ -208,8 +213,7 @@ namespace AsyncLua.Compiling
 			// Move value results to the expected baseReg+i positions for the write phase.
 			// For multi-return calls (1 value → N targets), the CALL returns N results
 			// into consecutive registers starting at actualValueRegs[0].
-			bool isMultiReturnCall = valueCount == 1 && targetCount > 1 &&
-				(node.Values[0] is FunctionCallNode || node.Values[0] is VarArgumentNode);
+			bool isMultiReturnCall = isMultiReturnValue;
 			int effectiveValueCount = isMultiReturnCall ? targetCount : valueCount;
 			int copyCount = Math.Min(effectiveValueCount, targetCount);
 			int[] valueRegs = new int[targetCount];
@@ -239,9 +243,10 @@ namespace AsyncLua.Compiling
 				_nextRegister = baseReg + targetCount;
 
 			// Emit nil-padding for targets with no corresponding value.
-			// Skip if the single value is a function call / vararg (it was patched to expand).
+			// Skip if the single value is a function call / vararg / await (it was patched to expand).
 			bool skipNilPadding = valueCount == 1 && targetCount > 1 &&
-				(node.Values[0] is FunctionCallNode || node.Values[0] is VarArgumentNode);
+				(node.Values[0] is FunctionCallNode || node.Values[0] is VarArgumentNode ||
+				 node.Values[0] is AwaitExpressionNode);
 			if (!skipNilPadding)
 			{
 				for (int i = valueCount; i < targetCount; i++)
@@ -887,7 +892,7 @@ namespace AsyncLua.Compiling
 			// Compile the assignment target: obj.method (SETTABLE).
 			// This is equivalent to: obj[methodName] = closure
 			int targetReg = AllocateRegister();
-			CompileExpression(node.TargetObject, targetReg);
+			CompileExpression(node.TargetObject!, targetReg);
 
 			// Use node.MethodName if present (colon-style), otherwise node.Name (dot-style).
 			string propertyName = node.MethodName ?? node.Name;
@@ -1383,8 +1388,7 @@ namespace AsyncLua.Compiling
 		private struct JumpFixup
 		{
 			public int InstructionIndex;
-			public int TargetLabel; // -1 = use TargetName
-			public string? TargetName;
+			public int TargetLabel;
 		}
 
 		private struct LoopContext
@@ -1519,7 +1523,7 @@ namespace AsyncLua.Compiling
 				if (!_labels.TryGetValue(labelKey, out int targetPosition))
 				{
 					throw new CompilerException(
-						$"Unresolved jump target: label {fixup.TargetLabel} (name: {fixup.TargetName ?? "?"}).");
+						$"Unresolved jump target: label {fixup.TargetLabel}.");
 				}
 
 				var inst = _instructions[fixup.InstructionIndex];

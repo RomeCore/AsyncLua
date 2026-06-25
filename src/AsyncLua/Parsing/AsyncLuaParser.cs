@@ -51,6 +51,8 @@ namespace AsyncLua.Parsing
 
 			builder.Settings.Skip(b => b.Rule("skip"), ParserSkippingStrategy.TryParseThenSkipLazy);
 
+			builder.Settings.UseCaching();
+
 			DeclareExpressions(builder);
 
 			DeclareStatements(builder);

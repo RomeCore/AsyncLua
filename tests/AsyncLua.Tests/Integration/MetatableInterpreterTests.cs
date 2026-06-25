@@ -107,7 +107,7 @@ public class MetatableInterpreterTests
 	private static LuaCallingContext CreateContext(MetatableMode mode = MetatableMode.Default)
 	{
 		var state = CreateState();
-		return state.CreateContext(new InterpreterSettings { MetatableMode = mode });
+		return state.CreateContext(settings: new InterpreterSettings { MetatableMode = mode });
 	}
 
 	private static LuaTuple CompileAndExecute(string code, MetatableMode mode = MetatableMode.Default)
@@ -441,7 +441,7 @@ public class MetatableInterpreterTests
 				return new LuaTuple(target);
 			}, "setup_add_mt"));
 
-		var context = state.CreateContext(new InterpreterSettings { MetatableMode = MetatableMode.Default });
+		var context = state.CreateContext(settings: new InterpreterSettings { MetatableMode = MetatableMode.Default });
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(@"

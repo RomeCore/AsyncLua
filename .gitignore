@@ -19,6 +19,10 @@ project-references/
 *.cache
 *.lock.json
 
+## BenchmarkDotNet Artifacts
+BenchmarkDotNet.Artifacts/
+**/BenchmarkDotNet.Artifacts/
+
 ## Test Results
 [Tt]est[Rr]esults/
 **/[Tt]est[Rr]esult*.trx

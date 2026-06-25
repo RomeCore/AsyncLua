@@ -177,7 +177,7 @@ namespace AsyncLua.Interpreting
 										}
 
 										// Key not found — try __index metamethod.
-										var index = GetMetamethod(current, LuaMetatableEvent.Index, mode);
+										var index = GetMetamethod(context.State, current, LuaMetatableEvent.Index, mode);
 										if (index.Type == LuaType.Nil)
 										{
 											// No __index — return nil (or error if not a table).
@@ -236,7 +236,7 @@ namespace AsyncLua.Interpreting
 										}
 										else
 										{
-											var newIndex = GetMetamethod(table, LuaMetatableEvent.NewIndex, mode);
+											var newIndex = GetMetamethod(context.State, table, LuaMetatableEvent.NewIndex, mode);
 											if (newIndex.Type != LuaType.Nil && newIndex is LuaFunction func)
 											{
 												if (async)
@@ -253,7 +253,7 @@ namespace AsyncLua.Interpreting
 									else
 									{
 										// Not a table — try __newindex in Aggressive mode, otherwise error.
-										var newIndex = GetMetamethod(table, LuaMetatableEvent.NewIndex, mode);
+										var newIndex = GetMetamethod(context.State, table, LuaMetatableEvent.NewIndex, mode);
 										if (newIndex.Type != LuaType.Nil && newIndex is LuaFunction func)
 										{
 											if (async)
@@ -270,7 +270,6 @@ namespace AsyncLua.Interpreting
 									pc++;
 									break;
 								}
-
 
 							case OpCode.SETLIST:
 								{
@@ -936,7 +935,7 @@ namespace AsyncLua.Interpreting
 
 									// ── Not a function — try __call metamethod ──
 									var mode = context.Settings.MetatableMode;
-									var call = GetMetamethod(func, LuaMetatableEvent.Call, mode);
+									var call = GetMetamethod(context.State, func, LuaMetatableEvent.Call, mode);
 									if (call.Type != LuaType.Nil && call is LuaFunction callFunc)
 									{
 										// Build arguments: metamethod receives (func, ...originalArgs).
@@ -1218,8 +1217,15 @@ namespace AsyncLua.Interpreting
 						}
 						else
 						{
-							throw; // rethrow — all handlers already used
+							// rethrow — all handlers already used
+							if (!ex.HasPosition)
+								throw RuntimeError(ex.OriginalMessage, function, pc, ex.InnerException);
+							throw;
 						}
+					}
+					catch (LuaRuntimeException ex) when (!ex.HasPosition)
+					{
+						throw RuntimeError(ex.OriginalMessage, function, pc, ex.InnerException);
 					}
 				}
 			}
@@ -1262,7 +1268,7 @@ namespace AsyncLua.Interpreting
 		/// Creates a <see cref="LuaRuntimeException"/> with source position information
 		/// from the current instruction pointer and an inner exception, if available.
 		/// </summary>
-		private static LuaRuntimeException RuntimeError(string message, FunctionPrototype function, int pc, Exception inner)
+		private static LuaRuntimeException RuntimeError(string message, FunctionPrototype function, int pc, Exception? inner)
 		{
 			var positions = function.Positions;
 			if (positions != null && pc >= 0 && pc < positions.Length)
@@ -1287,21 +1293,25 @@ namespace AsyncLua.Interpreting
 		/// The metamethod handler, or <see cref="LuaNil.Instance"/> if no suitable handler exists.
 		/// </returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		private static LuaValue GetMetamethod(LuaValue value, LuaMetatableEvent evt, MetatableMode mode)
+		private static LuaValue GetMetamethod(LuaState state, LuaValue value, LuaMetatableEvent evt, MetatableMode mode)
 		{
 			// In Aggressive mode, any type with a metatable can yield a metamethod.
 			if (mode == MetatableMode.Aggressive)
 			{
 				var mt = value.Metatable;
+				if (mt == null && state.TypeMetatables.TryGetValue(value.Type, out var _mt))
+					mt = _mt;
 				if (mt != null && mt.HasEvent(evt))
 					return mt.Get(evt);
 				return LuaNil.Instance;
 			}
 
 			// Default (Relaxed) mode: only tables (and userdata) are checked.
-			if (value.Type == LuaType.Table)
+			if (value.Type == LuaType.Table || value.Type == LuaType.UserData)
 			{
 				var mt = value.Metatable;
+				if (mt == null && state.TypeMetatables.TryGetValue(value.Type, out var _mt))
+					mt = _mt;
 				if (mt != null && mt.HasEvent(evt))
 					return mt.Get(evt);
 			}
@@ -1317,7 +1327,7 @@ namespace AsyncLua.Interpreting
 			LuaCallingContext context)
 		{
 			// Try left operand first.
-			var mmLhs = GetMetamethod(lhs, evt, mode);
+			var mmLhs = GetMetamethod(context.State, lhs, evt, mode);
 			if (mmLhs.Type != LuaType.Nil)
 			{
 				if (mmLhs is LuaFunction func)
@@ -1342,7 +1352,7 @@ namespace AsyncLua.Interpreting
 			}
 
 			// Then try right operand.
-			var mmRhs = GetMetamethod(rhs, evt, mode);
+			var mmRhs = GetMetamethod(context.State, rhs, evt, mode);
 			if (mmRhs.Type != LuaType.Nil)
 			{
 				if (mmRhs is LuaFunction func)
@@ -1385,7 +1395,7 @@ namespace AsyncLua.Interpreting
 			LuaValue operand, LuaMetatableEvent evt, MetatableMode mode,
 			LuaCallingContext context)
 		{
-			var mm = GetMetamethod(operand, evt, mode);
+			var mm = GetMetamethod(context.State, operand, evt, mode);
 			if (mm.Type != LuaType.Nil && mm is LuaFunction func)
 			{
 				// Temporarily strip metatable to prevent infinite recursion
@@ -1445,8 +1455,8 @@ namespace AsyncLua.Interpreting
 			// In Default mode, only invoke if both operands share the same metamethod.
 			if (mode == MetatableMode.Default)
 			{
-				var mmLhs = GetMetamethod(lhs, evt, mode);
-				var mmRhs = GetMetamethod(rhs, evt, mode);
+				var mmLhs = GetMetamethod(context.State, lhs, evt, mode);
+				var mmRhs = GetMetamethod(context.State, rhs, evt, mode);
 				if (mmLhs.Type != LuaType.Nil && ReferenceEquals(mmLhs, mmRhs))
 				{
 					if (mmLhs is LuaFunction func)
@@ -1456,11 +1466,11 @@ namespace AsyncLua.Interpreting
 			}
 
 			// Aggressive mode: try left first, then right.
-			var mmLeft = GetMetamethod(lhs, evt, MetatableMode.Aggressive);
+			var mmLeft = GetMetamethod(context.State, lhs, evt, MetatableMode.Aggressive);
 			if (mmLeft.Type != LuaType.Nil && mmLeft is LuaFunction funcLeft)
 				return InvokeSafely(funcLeft);
 
-			var mmRight = GetMetamethod(rhs, evt, MetatableMode.Aggressive);
+			var mmRight = GetMetamethod(context.State, rhs, evt, MetatableMode.Aggressive);
 			if (mmRight.Type != LuaType.Nil && mmRight is LuaFunction funcRight)
 				return InvokeSafely(funcRight);
 

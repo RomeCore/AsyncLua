@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 namespace AsyncLua.Values
@@ -28,7 +29,7 @@ namespace AsyncLua.Values
 		private readonly ConcurrentDictionary<LuaValue, LuaValue> _entries;
 
 		// Cached array-boundary length for the # operator; invalidated on mutation.
-		private int? _cachedLength;
+		private int? _cachedLength = 0;
 
 		/// <summary>
 		/// Initialises a new, empty Lua table with no metatable.
@@ -118,14 +119,28 @@ namespace AsyncLua.Values
 		public void Set(LuaValue key, LuaValue value)
 		{
 			ValidateKey(key);
-			InvalidateLengthCache();
 
 			if (value is LuaNil)
 			{
+				if (key is LuaNumber number && _cachedLength != null)
+				{
+					if (_cachedLength == number.Value)
+						_cachedLength = (int)number.Value - 1;
+					else
+						_cachedLength = null;
+				}
 				_entries.TryRemove(key, out _);
 			}
 			else
 			{
+				if (key is LuaNumber number && _cachedLength != null)
+				{
+					if (_cachedLength >= number.Value + 1 && !_entries.ContainsKey((LuaNumber)(number.Value + 1)))
+						_cachedLength = (int)number.Value + 1;
+					else
+						_cachedLength = null;
+				}
+				_cachedLength = null;
 				_entries[key] = value;
 			}
 		}
@@ -146,7 +161,7 @@ namespace AsyncLua.Values
 		public bool Remove(LuaValue key)
 		{
 			ValidateKey(key);
-			InvalidateLengthCache();
+			_cachedLength = null;
 			return _entries.TryRemove(key, out _);
 		}
 
@@ -156,6 +171,16 @@ namespace AsyncLua.Values
 		/// <param name="index">The 1-based integer index.</param>
 		/// <returns><see langword="true"/> if the index was present; otherwise, <see langword="false"/>.</returns>
 		public bool Remove(int index) => Remove((LuaNumber)(double)index);
+
+		public void Append(LuaValue value)
+		{
+			var length = Length;
+			_entries[(LuaNumber)(length + 1)] = value;
+			if (!_entries.ContainsKey((LuaNumber)(length + 2)))
+				_cachedLength = length + 1;
+			else
+				_cachedLength = null;
+		}
 
 		/// <summary>
 		/// Determines whether the table contains the specified key.
@@ -282,6 +307,21 @@ namespace AsyncLua.Values
 
 		IEnumerator IEnumerable.GetEnumerator() => _entries.GetEnumerator();
 
+		/// <summary>
+		/// Returns an enumerable over all keys in the table.
+		/// </summary>
+		public IEnumerable<LuaValue> Keys => _entries.Keys.Where(k => k != LuaNil.Instance);
+
+		/// <summary>
+		/// Returns an enumerable over all values in the table.
+		/// </summary>
+		public IEnumerable<LuaValue> Values => _entries.Values;
+
+		/// <summary>
+		/// Returns an enumerable over all key-value pairs in the table.
+		/// </summary>
+		public IEnumerable<KeyValuePair<LuaValue, LuaValue>> Entries => _entries;
+
 		// ── Private helpers ──────────────────────────────────────────────
 
 		private int CalculateLength()
@@ -313,12 +353,6 @@ namespace AsyncLua.Values
 			}
 
 			return low;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		private void InvalidateLengthCache()
-		{
-			_cachedLength = null;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]

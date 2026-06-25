@@ -70,7 +70,7 @@ namespace AsyncLua
 
 		private static string FormatMessageWithPosition(string message, CodePositionalInfo pos)
 		{
-			return $"{message} {pos}";
+			return $"{message}\n{pos}";
 		}
 	}
 }

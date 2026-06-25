@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using AsyncLua.Compiling;
+using AsyncLua.Libraries;
 using AsyncLua.Parsing;
 using AsyncLua.Values;
 using RCParsing;
@@ -29,6 +31,11 @@ namespace AsyncLua
 		public LuaTable Globals { get; }
 
 		/// <summary>
+		/// Gets a dictionary mapping Lua types to their corresponding default metatables.
+		/// </summary>
+		public ConcurrentDictionary<LuaType, LuaMetatable> TypeMetatables { get; } = [];
+
+		/// <summary>
 		/// Initialises a new instance of the <see cref="LuaState"/> class
 		/// with an empty global table.
 		/// </summary>
@@ -54,6 +61,27 @@ namespace AsyncLua
 			Globals = new LuaTable();
 			// Standard Lua: _G references the global table itself.
 			Globals.Set(new LuaString("_G"), Globals);
+		}
+
+		/// <summary>
+		/// Loads the built-in default libraries into this Lua state:
+		/// <list type="bullet">
+		///   <item><description><c>BasicLibrary</c> — global functions (print, type, tostring, tonumber, error, assert, ipairs, pairs, next, select)</description></item>
+		///   <item><description><c>MathLibrary</c> — math functions and constants</description></item>
+		///   <item><description><c>StringLibrary</c> — string manipulation functions</description></item>
+		///   <item><description><c>TableLibrary</c> — table manipulation functions</description></item>
+		/// </list>
+		/// </summary>
+		/// <returns>This Lua state instance, for fluent chaining.</returns>
+		public LuaState LoadDefaultLibraries()
+		{
+			new Libraries.BasicLibrary().Import(this);
+			new Libraries.MathLibrary().Import(this);
+			new Libraries.StringLibrary().Import(this);
+			new Libraries.TableLibrary().Import(this);
+			new Libraries.CoroutineLibrary().Import(this);
+
+			return this;
 		}
 
 		/// <summary>
@@ -87,13 +115,16 @@ namespace AsyncLua
 		/// <summary>
 		/// Creates a new <see cref="LuaCallingContext"/> bound to this state.
 		/// </summary>
+		/// <param name="environment">
+		/// Optional table to use as the local environment. If <see langword="null"/>, uses the global table defined in this state.
+		/// </param>
 		/// <param name="settings">
 		/// Optional interpreter settings to use. If <see langword="null"/>, defaults are used.
 		/// </param>
 		/// <returns>A new calling context.</returns>
-		public LuaCallingContext CreateContext(Interpreting.InterpreterSettings? settings = null)
+		public LuaCallingContext CreateContext(LuaTable? environment = null, Interpreting.InterpreterSettings? settings = null)
 		{
-			return new LuaCallingContext(this, settings: settings);
+			return new LuaCallingContext(this, globals: environment ?? Globals, settings: settings);
 		}
 
 		/// <summary>
