@@ -152,36 +152,58 @@ namespace AsyncLua.Compiling
 			int valueCount = node.Values.Length;
 			int targetCount = node.Targets.Length;
 
-			// Compile all r-values into consecutive registers.
+			// Pre-allocate registers for all targets and register local variables
+			// BEFORE compiling values, so forward references (closures capturing
+			// the variable being assigned) see the local.
 			int baseReg = _nextRegister;
-			for (int i = 0; i < valueCount; i++)
-			{
-				int reg = AllocateRegister();
-				CompileExpression(node.Values[i], reg);
-			}
-
-			// Ensure enough registers are allocated for all targets (including nil padding).
-			while (_nextRegister < baseReg + targetCount)
-				AllocateRegister();
-
-			// Assign to targets.
 			for (int i = 0; i < targetCount; i++)
 			{
-				int srcReg = baseReg + i;
-				if (i >= valueCount)
-				{
-					// Pad with nil.
-					Emit(OpCode.MOVE, srcReg, GetConstantIndex(LuaNil.Instance),
-											flags: OpFlags.KB);
-				}
-
+				int reg = AllocateRegister(); // = baseReg + i
 				var target = node.Targets[i];
 				if (target is IdentifierNode ident)
 				{
 					if (node.Scope == VariableScope.Local || (node.Scope == null && _settings.IsLocalByDefault))
 					{
-						// local x = ...
-						_locals[ident.Name] = srcReg;
+						_locals[ident.Name] = reg;
+					}
+				}
+			}
+
+			// Compile all r-values into consecutive registers (starting at baseReg).
+			// Note: _nextRegister has been advanced past the target slots; values go
+			// into the same baseReg..baseReg+valueCount-1 range because targets and
+			// values share the same starting register in our layout.
+			// Reset _nextRegister to baseReg to reuse those slots for values.
+			_nextRegister = baseReg;
+			for (int i = 0; i < valueCount; i++)
+			{
+				int reg = AllocateRegister(); // = baseReg + i
+				CompileExpression(node.Values[i], reg);
+			}
+
+			// Ensure _nextRegister covers all target slots (in case valueCount < targetCount).
+			if (_nextRegister < baseReg + targetCount)
+				_nextRegister = baseReg + targetCount;
+
+			// Emit nil-padding for targets with no corresponding value.
+			for (int i = valueCount; i < targetCount; i++)
+			{
+				Emit(OpCode.MOVE, baseReg + i, GetConstantIndex(LuaNil.Instance),
+					flags: OpFlags.KB);
+			}
+
+			// Assign to targets (non-local).
+			for (int i = 0; i < targetCount; i++)
+			{
+				int srcReg = baseReg + i;
+				var target = node.Targets[i];
+				if (target is IdentifierNode ident)
+				{
+					bool isLocal = node.Scope == VariableScope.Local ||
+						(node.Scope == null && _settings.IsLocalByDefault);
+					if (isLocal)
+					{
+						// Already registered above — nothing to do.
 					}
 					else
 					{
@@ -829,6 +851,11 @@ namespace AsyncLua.Compiling
 			for (int i = 0; i < count; i++)
 				CompileExpression(exprs[i], baseReg + i);
 
+			// Reserve headroom for expansion so AWAIT doesn't overflow the register array.
+			// Last task has C=0 (accept all results), which may expand.
+			while (_nextRegister < baseReg + count + 16)
+				AllocateRegister();
+
 			// Await each task. Last task results are expanded (C=0).
 			for (int i = 0; i < count; i++)
 			{
@@ -1056,12 +1083,26 @@ namespace AsyncLua.Compiling
 			int argBase = destReg + 1;
 
 			// If method call (obj:method), make obj the first argument (self).
-			int argCount = node.Arguments.Length;
+			int fixedArgCount = node.Arguments.Length;
 			if (node.Method is not null)
-				argCount++; // +1 for self
+				fixedArgCount++; // +1 for self
 
-			// Ensure registers are allocated.
-			while (_nextRegister < destReg + 1 + argCount)
+			// Check if the last argument is a VarArgumentNode (will expand at runtime).
+			bool lastIsVararg = node.Arguments.Length > 0 &&
+				node.Arguments[node.Arguments.Length - 1] is VarArgumentNode;
+			// If the last arg is vararg, it will be expanded from frame.VarArgs at runtime,
+			// so we don't compile it into a register.
+			int nonVarargExplicitCount = lastIsVararg ? node.Arguments.Length - 1 : node.Arguments.Length;
+
+			// Calculate total register slots needed for fixed arguments:
+			// function slot (1) + explicit non-vararg args + implicit self (if method call).
+			int totalFixedSlots = 1 + nonVarargExplicitCount;
+			if (node.Method is not null)
+				totalFixedSlots++; // for implicit self
+
+			// Ensure registers are allocated for fixed arguments + function slot.
+			// We don't pre-allocate for varargs (they're read from frame at runtime).
+			while (_nextRegister < destReg + totalFixedSlots)
 				AllocateRegister();
 
 			// Compile the target (function/object).
@@ -1083,12 +1124,16 @@ namespace AsyncLua.Compiling
 				CompileExpression(node.Target, funcReg);
 			}
 
-			// Compile arguments (skip self slot if method call).
+			// Compile fixed explicit arguments (skip self slot if method call, skip vararg).
 			int argOffset = node.Method is not null ? 1 : 0;
-			for (int i = 0; i < node.Arguments.Length; i++)
+			for (int i = 0; i < nonVarargExplicitCount; i++)
 				CompileExpression(node.Arguments[i], argBase + argOffset + i);
 
-			Emit(OpCode.CALL, (byte)funcReg, (ushort)argCount, (ushort)1); // want 1 result
+			OpFlags callFlags = OpFlags.None;
+			if (lastIsVararg)
+				callFlags |= OpFlags.VarArgCall;
+
+			Emit(OpCode.CALL, (byte)funcReg, (ushort)fixedArgCount, (ushort)1, callFlags); // want 1 result
 		}
 
 		// ── Table index (get) ───────────────────────────────────────────

@@ -411,6 +411,12 @@ namespace AsyncLua.Interpreting
 									// C = 0 means "accept all results" (Lua multiple-return convention).
 									int wantResults = inst.C == 0 ? results.Count : inst.C;
 									int storeCount = Math.Min(results.Count, wantResults);
+									// Bound writes to available register space.
+									int maxWrite = registers.Length - inst.A;
+									if (storeCount > maxWrite)
+										storeCount = maxWrite;
+									if (wantResults > maxWrite)
+										wantResults = maxWrite;
 									for (int i = 0; i < storeCount; i++)
 										registers[inst.A + i] = results[i];
 									// Pad with nil if fewer results than expected.
@@ -709,6 +715,7 @@ namespace AsyncLua.Interpreting
 									{
 										CatchPC = catchPC,
 										CatchVarReg = catchReg != 0xFF ? catchReg : null,
+										CallStackDepth = callStack.Count,
 										Used = false
 									});
 									pc++;
@@ -734,13 +741,31 @@ namespace AsyncLua.Interpreting
 									var func = registers[inst.A];
 									pc++;
 
-									int argCount = inst.B;
 									int wantResults = inst.C;
 
 									// Collect arguments.
-									var args = new LuaValue[argCount];
-									for (int i = 0; i < argCount; i++)
-										args[i] = registers[inst.A + 1 + i];
+									LuaValue[] args;
+									bool hasVarArgCall = inst.Flags.HasFlag(OpFlags.VarArgCall);
+									if (hasVarArgCall)
+									{
+										// Last argument is vararg: read fixed args from registers,
+										// then append varargs from the current frame.
+										var frameVarArgs = frame.VarArgs ?? Array.Empty<LuaValue>();
+										// inst.B includes 1 for the vararg placeholder.
+										int fixedCount = inst.B - 1;
+										args = new LuaValue[fixedCount + frameVarArgs.Length];
+										for (int i = 0; i < fixedCount; i++)
+											args[i] = registers[inst.A + 1 + i];
+										for (int i = 0; i < frameVarArgs.Length; i++)
+											args[fixedCount + i] = frameVarArgs[i];
+									}
+									else
+									{
+										args = new LuaValue[inst.B];
+										for (int i = 0; i < inst.B; i++)
+											args[i] = registers[inst.A + 1 + i];
+									}
+									int argCount = args.Length;
 
 									// ── Direct function call (bytecode or callback) ──
 									if (func is LuaFunction luaFunc)
@@ -817,6 +842,12 @@ namespace AsyncLua.Interpreting
 											// C=0 means "accept all results" (Lua multiple-return convention).
 											int effectiveWant = wantResults == 0 ? results.Count : wantResults;
 											int storeCount = Math.Min(results.Count, effectiveWant);
+											// Bound writes to available register space.
+											int callMaxWrite = registers.Length - inst.A;
+											if (storeCount > callMaxWrite)
+												storeCount = callMaxWrite;
+											if (effectiveWant > callMaxWrite)
+												effectiveWant = callMaxWrite;
 											for (int i = 0; i < storeCount; i++)
 												registers[inst.A + i] = results[i];
 											// Pad with nil if fewer results than expected.
@@ -831,7 +862,7 @@ namespace AsyncLua.Interpreting
 										break;
 									}
 
-									// ── Not a function — try __call metamethod ──
+							// ── Not a function — try __call metamethod ──
 									var mode = context.Settings.MetatableMode;
 									var call = GetMetamethod(func, LuaMetatableEvent.Call, mode);
 									if (call.Type != LuaType.Nil && call is LuaFunction callFunc)
@@ -851,6 +882,12 @@ namespace AsyncLua.Interpreting
 										// C=0 means "accept all results" (Lua multiple-return convention).
 										int effectiveWant = wantResults == 0 ? results.Count : wantResults;
 										int storeCount = Math.Min(results.Count, effectiveWant);
+										// Bound writes to available register space.
+										int mmMaxWrite = registers.Length - inst.A;
+										if (storeCount > mmMaxWrite)
+											storeCount = mmMaxWrite;
+										if (effectiveWant > mmMaxWrite)
+											effectiveWant = mmMaxWrite;
 										for (int i = 0; i < storeCount; i++)
 											registers[inst.A + i] = results[i];
 										for (int i = storeCount; i < effectiveWant; i++)
@@ -1023,6 +1060,11 @@ namespace AsyncLua.Interpreting
 									if (want == 0)
 										want = varArgs.Length;
 
+									// Bound to available register space.
+									int maxWrite = registers.Length - inst.A;
+									if (want > maxWrite)
+										want = maxWrite;
+
 									for (int i = 0; i < want; i++)
 									{
 										if (i < varArgs.Length)
@@ -1030,6 +1072,11 @@ namespace AsyncLua.Interpreting
 										else
 											registers[inst.A + i] = LuaNil.Instance;
 									}
+
+									// Track highest written register for RETURN B=0.
+									int top = inst.A + want;
+									if (top > frame.RegisterTop)
+										frame.RegisterTop = top;
 
 									pc++;
 									break;
@@ -1041,9 +1088,10 @@ namespace AsyncLua.Interpreting
 					}
 					catch (LuaRuntimeException ex) when (tryHandlers.Count > 0)
 					{
-						// Find the nearest unused try handler.
+						// Find the nearest unused try handler (top of stack = innermost).
+						// We must preserve the original order of handlers.
 						TryHandlerInfo? found = null;
-						var popped = new Stack<TryHandlerInfo>();
+						var preserved = new List<TryHandlerInfo>();
 						while (tryHandlers.Count > 0)
 						{
 							var h = tryHandlers.Pop();
@@ -1052,17 +1100,49 @@ namespace AsyncLua.Interpreting
 								h.Used = true;
 								found = h;
 							}
-							popped.Push(h);
+							preserved.Add(h);
 						}
-						// Push all handlers back; the used one stays on top.
-						while (popped.Count > 0)
-							tryHandlers.Push(popped.Pop());
+						// Push handlers back in reverse order (to restore original stack order).
+						for (int i = preserved.Count - 1; i >= 0; i--)
+							tryHandlers.Push(preserved[i]);
 
 						if (found.HasValue)
 						{
-							if (found.Value.CatchVarReg.HasValue)
-								registers[found.Value.CatchVarReg.Value] = new LuaString(ex.Message);
-							pc = found.Value.CatchPC;
+							var handler = found.Value;
+
+							// Unwind the call stack to the frame that owns this handler.
+							// The current frame (callee) is in 'frame'; its caller is on top of callStack.
+							// We need to pop callStack until its Count equals handler.CallStackDepth,
+							// and restore the last popped frame as the current frame.
+							CallStackFrame? restoredFrame = null;
+							while (callStack.Count > handler.CallStackDepth)
+							{
+								restoredFrame = callStack.Pop();
+								// Close upvalues in frames we skip over.
+								if (restoredFrame.Value.OpenUpvalues != null)
+								{
+									foreach (var uv in restoredFrame.Value.OpenUpvalues)
+										uv?.Close();
+								}
+							}
+
+							if (restoredFrame.HasValue)
+							{
+								frame = restoredFrame.Value;
+								registers = frame.Registers;
+								constants = frame.Function.Constants;
+								instructions = frame.Function.Instructions;
+							}
+							// If restoredFrame is null, the handler belongs to the current frame
+							// (which is already active). No unwinding needed.
+
+							// Remove handlers that belonged to unwound frames (they are no longer valid).
+							while (tryHandlers.Count > 0 && tryHandlers.Peek().CallStackDepth > callStack.Count)
+								tryHandlers.Pop();
+
+							if (handler.CatchVarReg.HasValue)
+								registers[handler.CatchVarReg.Value] = new LuaString(ex.Message);
+							pc = handler.CatchPC;
 						}
 						else
 						{
@@ -1572,6 +1652,12 @@ namespace AsyncLua.Interpreting
 			/// The register index to store the exception message, or <see langword="null"/> if none.
 			/// </summary>
 			public int? CatchVarReg;
+
+			/// <summary>
+			/// The call stack depth at the moment this handler was registered.
+			/// Used to unwind the call stack when this handler catches an exception.
+			/// </summary>
+			public int CallStackDepth;
 
 			/// <summary>
 			/// Indicates whether this handler has already been used to catch an exception.
