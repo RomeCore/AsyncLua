@@ -272,8 +272,9 @@ public class LockAndAwaitInterpreterTests
 		}, maxRegSize: 1, constants: new LuaValue[] { faultedTask });
 
 		// Awaiting a faulted task should throw.
-		await Assert.ThrowsAsync<InvalidOperationException>(
+		var ex = await Assert.ThrowsAsync<LuaRuntimeException>(
 			async () => await AsyncLuaInterpreter.CallAsync(proto, Context()));
+		Assert.IsType<InvalidOperationException>(ex.InnerException);
 	}
 
 	// ── Non-blocking async CALL ───────────────────────────────────────

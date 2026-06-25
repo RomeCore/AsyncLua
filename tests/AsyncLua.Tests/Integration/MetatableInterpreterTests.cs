@@ -3,7 +3,7 @@ using AsyncLua.Interpreting;
 using AsyncLua.Parsing;
 using AsyncLua.Values;
 
-namespace AsyncLua.Tests.Intergation;
+namespace AsyncLua.Tests.Integration;
 
 /// <summary>
 /// Tests for metatable support in Default (Relaxed) and Aggressive modes.

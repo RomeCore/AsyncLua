@@ -71,13 +71,15 @@ namespace AsyncLua.Values
 		/// <inheritdoc />
 		public bool Equals(LuaNumber other)
 		{
-			return other is not null && Value.Equals(other.Value);
+			// Lua semantics: NaN is not equal to anything, including itself.
+			// double.Equals returns true for NaN==NaN, but the == operator correctly returns false.
+			return other is not null && Value == other.Value;
 		}
 
 		/// <inheritdoc />
 		public override bool Equals(object obj)
 		{
-			return obj is LuaNumber n && Value.Equals(n.Value);
+			return obj is LuaNumber n && Value == n.Value;
 		}
 
 		/// <inheritdoc />

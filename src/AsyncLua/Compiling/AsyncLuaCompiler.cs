@@ -102,8 +102,19 @@ namespace AsyncLua.Compiling
 
 		private void CompileBlock(BlockNode block)
 		{
+			// Save locals to provide a new scope for the block.
+			var savedLocals = new Dictionary<string, int>(_locals);
 			foreach (var stmt in block.Statements)
 				CompileStatement(stmt);
+			// Restore locals: remove newly introduced names, restore overwritten old values.
+			var keysToRemove = new List<string>();
+			foreach (var k in _locals.Keys)
+				if (!savedLocals.ContainsKey(k))
+					keysToRemove.Add(k);
+			foreach (var key in keysToRemove)
+				_locals.Remove(key);
+			foreach (var kv in savedLocals)
+				_locals[kv.Key] = kv.Value;
 		}
 
 		private void CompileStatement(StatementNode stmt)
@@ -128,7 +139,6 @@ namespace AsyncLua.Compiling
 				case LockNode lockNode: CompileLock(lockNode); break;
 				case TryCatchNode tryCatch: CompileTryCatch(tryCatch); break;
 				case ThrowNode throwNode: CompileThrow(throwNode); break;
-
 				case AwaitStatementNode awaitStmt: CompileAwaitStatement(awaitStmt); break;
 				default:
 					throw new CompilerException($"Unknown statement type: {stmt.GetType().Name}");
@@ -550,13 +560,45 @@ namespace AsyncLua.Compiling
 			int baseReg = AllocateRegister();
 			_nextRegister = Math.Max(_nextRegister, baseReg + 6);
 
-			// Compile the three iterator expressions.
-			for (int i = 0; i < Math.Min(node.Expressions.Length, 3); i++)
+			int exprCount = node.Expressions.Length;
+			int slotsToFill = Math.Min(exprCount, 3);
+			int lastIdx = slotsToFill - 1; // -1 if slotsToFill == 0
+
+			// Compile all but the last expression normally (each with C=1).
+			for (int i = 0; i < slotsToFill - 1; i++)
 				CompileExpression(node.Expressions[i], baseReg + i);
 
-			// If fewer than 3 expressions, pad with nil.
-			for (int i = node.Expressions.Length; i < 3; i++)
-				Emit(OpCode.MOVE, baseReg + i, GetConstantIndex(LuaNil.Instance), flags: OpFlags.KB);
+			// Compile the last expression. If it's a call/vararg, allow it to expand (C=0)
+			// so multiple return values populate the remaining slots (standard Lua for-in semantics).
+			if (slotsToFill > 0)
+			{
+				int instrBefore = _instructions.Count;
+				CompileExpression(node.Expressions[lastIdx], baseReg + lastIdx);
+
+				// If there are more slots to fill and the last expression is a call/vararg,
+				// patch it to expand results.
+				if (slotsToFill < 3 && lastIdx == exprCount - 1)
+				{
+					var lastExpr = node.Expressions[lastIdx];
+					if (lastExpr is FunctionCallNode || lastExpr is VarArgumentNode)
+						PatchLastCallToExpand();
+				}
+
+				// Reserve headroom for expansion.
+				while (_nextRegister < baseReg + 6 + 8)
+					AllocateRegister();
+			}
+
+			// If the last expression was NOT a call/vararg that expands,
+			// or if there are more than 3 expressions, pad remaining slots with nil.
+			bool lastExpands = slotsToFill > 0 && lastIdx == exprCount - 1 &&
+				(node.Expressions[lastIdx] is FunctionCallNode || node.Expressions[lastIdx] is VarArgumentNode);
+			if (!lastExpands)
+			{
+				// Pad uninitialised slots with nil.
+				for (int i = exprCount; i < 3; i++)
+					Emit(OpCode.MOVE, baseReg + i, GetConstantIndex(LuaNil.Instance), flags: OpFlags.KB);
+			}
 
 			// Map loop variables.
 			for (int i = 0; i < node.Variables.Length; i++)
@@ -588,18 +630,7 @@ namespace AsyncLua.Compiling
 
 		private void CompileDo(DoNode node)
 		{
-			// Save locals to provide a new scope for the block.
-			var savedLocals = new Dictionary<string, int>(_locals);
 			CompileBlock(node.Body);
-			// Restore locals: remove newly introduced names, restore overwritten old values.
-			var keysToRemove = new List<string>();
-			foreach (var k in _locals.Keys)
-				if (!savedLocals.ContainsKey(k))
-					keysToRemove.Add(k);
-			foreach (var key in keysToRemove)
-				_locals.Remove(key);
-			foreach (var kv in savedLocals)
-				_locals[kv.Key] = kv.Value;
 		}
 
 		// ── Break / Continue ────────────────────────────────────────────
@@ -638,29 +669,65 @@ namespace AsyncLua.Compiling
 
 		private void CompileFunctionDeclaration(FunctionDeclStatementNode node)
 		{
-			// For local functions, pre-register the name so recursive calls work.
-			int closureReg = -1;
-			if (node.Scope == VariableScope.Local || (node.Scope == null && _settings.IsLocalByDefault))
+			// Method-style declarations (function obj.name() or function obj:name())
+			// are compiled as assignments to a table element, not as local/global variables.
+			bool isMethodStyle = node.TargetObject is not null;
+
+			if (isMethodStyle)
 			{
-				closureReg = AllocateRegister();
-				_locals[node.Name] = closureReg;
-				// Emit a MOVE so the slot is initialised with nil until the CLOSURE is created.
-				Emit(OpCode.MOVE, (byte)closureReg,
-					GetConstantIndex(LuaNil.Instance), flags: OpFlags.KB);
+				CompileMethodStyleFunction(node);
+				return;
 			}
+
+			// Determine whether this function should be assigned to a local variable.
+			// Explicit "local function" or when IsLocalByDefault is set.
+			bool explicitLocal = node.Scope == VariableScope.Local;
+			bool implicitLocal = node.Scope == null && _settings.IsLocalByDefault;
+			// If the name already exists as a local (e.g. forward-declared "local f"),
+			// the function must be assigned to that local, not a global.
+			bool hasExistingLocal = _locals.ContainsKey(node.Name);
+
+			int closureReg;
+			if (explicitLocal || implicitLocal || hasExistingLocal)
+			{
+				// Reuse an existing local register if present; otherwise allocate a new one.
+				if (_locals.TryGetValue(node.Name, out int existingReg))
+				{
+					closureReg = existingReg;
+				}
+				else
+				{
+					closureReg = AllocateRegister();
+					_locals[node.Name] = closureReg;
+					// Initialise the slot with nil until the CLOSURE is created.
+					Emit(OpCode.MOVE, (byte)closureReg,
+						GetConstantIndex(LuaNil.Instance), flags: OpFlags.KB);
+				}
+			}
+			else
+			{
+				// Will allocate after compiling the body.
+				closureReg = -1;
+			}
+
+			// For colon-style (obj:method), the parser doesn't add 'self' — we add it here.
+			int implicitSelf = node.MethodName is not null ? 1 : 0;
+			int totalParams = node.Parameters.Length + implicitSelf;
 
 			var childCompiler = new AsyncLuaCompiler(
 				_settings,
 				parent: this,
 				isAsync: node.IsAsync,
-				parameterCount: node.Parameters.Length,
+				parameterCount: totalParams,
 				isVararg: node.HasVarArg,
 				sourceName: node.Name);
 
 			// Register parameters in the child compiler.
+			if (implicitSelf > 0)
+				childCompiler._locals["self"] = 0;
 			for (int i = 0; i < node.Parameters.Length; i++)
-				childCompiler._locals[node.Parameters[i].Name] = i;
-			childCompiler._nextRegister = node.Parameters.Length;
+				childCompiler._locals[node.Parameters[i].Name] = implicitSelf + i;
+			childCompiler._nextRegister = totalParams;
 
 			childCompiler.CompileBlock(node.Body);
 			childCompiler.EmitReturn();
@@ -670,9 +737,9 @@ namespace AsyncLua.Compiling
 			int protoIndex = _innerPrototypes.Count;
 			_innerPrototypes.Add(innerProto);
 
-			if (node.Scope == VariableScope.Local || (node.Scope == null && _settings.IsLocalByDefault))
+			if (explicitLocal || implicitLocal || hasExistingLocal)
 			{
-				// Reuse the pre-allocated register.
+				// Use the pre-determined register (either reused or pre-allocated).
 				EmitCLOSURE(closureReg, (ushort)protoIndex);
 			}
 			else
@@ -681,6 +748,57 @@ namespace AsyncLua.Compiling
 				EmitCLOSURE(closureReg, (ushort)protoIndex);
 				EmitSETGLOBAL(node.Name, closureReg);
 			}
+		}
+
+		/// <summary>
+		/// Compiles a method-style function declaration such as
+		/// <c>function obj.method(params) body end</c> or
+		/// <c>function obj:method(params) body end</c>.
+		/// </summary>
+		private void CompileMethodStyleFunction(FunctionDeclStatementNode node)
+		{
+			// For colon-style (obj:method), add an implicit 'self' parameter.
+			int implicitSelf = node.MethodName is not null ? 1 : 0;
+			int totalParams = node.Parameters.Length + implicitSelf;
+
+			var childCompiler = new AsyncLuaCompiler(
+				_settings,
+				parent: this,
+				isAsync: node.IsAsync,
+				parameterCount: totalParams,
+				isVararg: node.HasVarArg,
+				sourceName: node.Name);
+
+			// Register parameters in the child compiler, with 'self' first if colon-style.
+			if (implicitSelf > 0)
+				childCompiler._locals["self"] = 0;
+			for (int i = 0; i < node.Parameters.Length; i++)
+				childCompiler._locals[node.Parameters[i].Name] = implicitSelf + i;
+			childCompiler._nextRegister = totalParams;
+
+			childCompiler.CompileBlock(node.Body);
+			childCompiler.EmitReturn();
+			childCompiler.PatchForwardJumps();
+
+			var innerProto = childCompiler.BuildPrototype();
+			int protoIndex = _innerPrototypes.Count;
+			_innerPrototypes.Add(innerProto);
+
+			// Allocate register for the closure.
+			int closureReg = AllocateRegister();
+			EmitCLOSURE(closureReg, (ushort)protoIndex);
+
+			// Compile the assignment target: obj.method (SETTABLE).
+			// This is equivalent to: obj[methodName] = closure
+			int targetReg = AllocateRegister();
+			CompileExpression(node.TargetObject, targetReg);
+
+			// Use node.MethodName if present (colon-style), otherwise node.Name (dot-style).
+			string propertyName = node.MethodName ?? node.Name;
+			int keyIndex = GetConstantIndex(new LuaString(propertyName));
+
+			Emit(OpCode.SETTABLE, (byte)targetReg, (ushort)keyIndex, (ushort)closureReg,
+				OpFlags.KB);
 		}
 
 		// ── Lock ────────────────────────────────────────────────────────

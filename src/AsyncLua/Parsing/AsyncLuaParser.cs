@@ -5,6 +5,7 @@ using AsyncLua.Parsing.Expressions;
 using AsyncLua.Parsing.Statements;
 using AsyncLua.Values;
 using RCParsing;
+using RCParsing.TokenPatterns;
 
 namespace AsyncLua.Parsing
 {
@@ -92,13 +93,13 @@ namespace AsyncLua.Parsing
 
 			builder.CreateToken("number")
 				.LongestChoice(
-					b => b.Map<long>(b => b.IntegerNumber<long>(defaultBase: 10, baseMappings: new Dictionary<char, int> {
+					b => b.Map<long>(b => b.IntegerNumber<long>(IntegerNumberFlags.GroupSeparators, defaultBase: 10, baseMappings: new Dictionary<char, int> {
 						['x'] = 16,
 						['X'] = 16,
 						['b'] = 2,
 						['B'] = 2
 					}), d => new LuaNumber(d)),
-					b => b.Map<double>(b => b.Number<double>(RCParsing.TokenPatterns.NumberFlags.StrictUnsignedScientific),
+					b => b.Map<double>(b => b.Number<double>(NumberFlags.StrictUnsignedScientific),
 						d => new LuaNumber(d))
 				);
 
@@ -431,7 +432,7 @@ namespace AsyncLua.Parsing
 			builder.CreateRule("bitwise_shift_expr")
 				.OneOrMoreSeparated(
 					b => b.Rule("concat_expr"),
-					o => o.LiteralChoice("<<,", ">>"),
+					o => o.LiteralChoice("<<", ">>"),
 					includeSeparatorsInResult: true)
 				.Transform(v => FoldBinaryOperators(v, new Dictionary<string, BinaryOperatorType>
 				{

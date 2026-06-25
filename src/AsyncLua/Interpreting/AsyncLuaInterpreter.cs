@@ -393,7 +393,21 @@ namespace AsyncLua.Interpreting
 									var task = registers[inst.A] as LuaTask
 										?? throw new LuaRuntimeException("AWAIT: operand A must be a LuaTask.");
 
-									var results = await task;
+									LuaTuple results;
+									try
+									{
+										results = await task;
+									}
+									catch (LuaRuntimeException)
+									{
+										throw; // Already a LuaRuntimeException — let it propagate to TRY handlers.
+									}
+									catch (Exception ex)
+									{
+										// Wrap non-Lua exceptions (e.g. from faulted tasks) so Lua try/catch can handle them.
+										throw new LuaRuntimeException(ex.Message, ex);
+									}
+
 									// C = 0 means "accept all results" (Lua multiple-return convention).
 									int wantResults = inst.C == 0 ? results.Count : inst.C;
 									int storeCount = Math.Min(results.Count, wantResults);
@@ -670,7 +684,7 @@ namespace AsyncLua.Interpreting
 								{
 									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
 									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
-									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.ShR, metatableMode, context);
+									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.ShL, metatableMode, context);
 									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Shl, inst);
 									pc++;
 									break;
@@ -950,11 +964,13 @@ namespace AsyncLua.Interpreting
 									break;
 								}
 
-							case OpCode.TFORCALL:
+								case OpCode.TFORCALL:
 								{
 									// Call R[A] (the iterator function) with arguments R[A+1] (state), R[A+2] (var).
-									// First result → R[A+2] (new var), second result → R[A+1] (new state) if present.
-									// Results are also stored at R[A+3].. for use by loop variables.
+									// Results are stored at R[A+3].. (for loop variables).
+									// R[A+2] is updated from the first result (new var).
+									// R[A+1] (state) is NOT updated — it remains as set by the initialiser
+									// (e.g. pairs/ipairs), following standard Lua semantics.
 									var tforFunc = registers[inst.A] as LuaFunction
 										?? throw new LuaRuntimeException("TFORCALL: operand A must be a function.");
 
@@ -979,10 +995,6 @@ namespace AsyncLua.Interpreting
 
 									// Update var (R[A+2]) from the first result. Nil if exhausted.
 									registers[inst.A + 2] = results.Count > 0 ? results[0] : LuaNil.Instance;
-
-									// Update state (R[A+1]) only if the iterator returned a second value.
-									if (results.Count >= 2)
-										registers[inst.A + 1] = results[1];
 
 									pc++;
 									break;
@@ -1405,7 +1417,7 @@ namespace AsyncLua.Interpreting
 				return string.CompareOrdinal(sa, sb) >= 0;
 			}
 
-			throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<='.");
+			throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>='.");
 		}
 
 		private static bool CompareGreaterThan(LuaValue lhs, LuaValue rhs)
@@ -1425,7 +1437,7 @@ namespace AsyncLua.Interpreting
 				return string.CompareOrdinal(sa, sb) > 0;
 			}
 
-			throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<'.");
+			throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>'.");
 		}
 
 		private static bool CompareLessOrEqual(LuaValue lhs, LuaValue rhs)
