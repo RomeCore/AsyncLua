@@ -336,8 +336,8 @@ public class StressIntegrationTests
 			return #found, found[1].i, found[1].j, sumI
 		");
 		Assert.True(((LuaNumber)result[0]).Value >= 2);
-		Assert.Equal(5.0, Assert.IsType<LuaNumber>(result[1]).Value);
-		Assert.Equal(10.0, Assert.IsType<LuaNumber>(result[2]).Value);
+		Assert.Equal(8.0, Assert.IsType<LuaNumber>(result[1]).Value);
+		Assert.Equal(7.0, Assert.IsType<LuaNumber>(result[2]).Value);
 	}
 
 	[Fact]

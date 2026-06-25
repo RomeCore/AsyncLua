@@ -135,6 +135,21 @@ namespace AsyncLua.Interpreting
 		SETTABLE,
 
 		/// <summary>
+		/// Write multiple values to a table as consecutive array elements.
+		/// <para><c>A</c> = table register. <c>R[A]</c> must be a table.</para>
+		/// <para><c>B</c> = constant pool index (<see cref="OpFlags.KB"/> must be set)
+		/// pointing to a <see cref="LuaNumber"/> that specifies the 1-based starting array index.</para>
+		/// <para><c>C</c> = first value register. Values are read from <c>R[C]</c> through
+		/// <c>R[RegisterTop - 1]</c>. The number of values is determined by
+		/// <c>frame.RegisterTop - C</c>.</para>
+		/// <para>
+		/// For each value <c>v</c> starting at <c>R[C]</c>, the instruction performs
+		/// <c>R[A][startIndex + i] = v</c>, incrementing both index and register offset.
+		/// </para>
+		/// </summary>
+		SETLIST,
+
+		/// <summary>
 		/// Read a value from the global environment table. <c>R[A] = _G[R/K[B]]</c>.
 		/// The key is <c>R[B]</c> or <c>K[B]</c> depending on <see cref="OpFlags.KB"/>.
 		/// </summary>

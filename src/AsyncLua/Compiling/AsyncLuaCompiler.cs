@@ -1247,12 +1247,39 @@ namespace AsyncLua.Compiling
 			Emit(OpCode.NEWTABLE, (byte)destReg);
 
 			int arrayIndex = 1;
-			foreach (var pair in node.Pairs)
+			for (int idx = 0; idx < node.Pairs.Length; idx++)
 			{
+				var pair = node.Pairs[idx];
+				bool isLast = idx == node.Pairs.Length - 1;
+
+				// If the last pair has no key and is a function call or vararg,
+				// expand all return values into consecutive array slots.
+				bool canExpand = isLast && pair.Key is null &&
+					(pair.Value is FunctionCallNode || pair.Value is VarArgumentNode);
+
 				int valueReg = AllocateRegister();
+				int instrBefore = _instructions.Count;
 				CompileExpression(pair.Value, valueReg);
 
-				if (pair.Key is null)
+				if (canExpand)
+				{
+					// Patch the CALL (or VARARG) to expand all results (C=0).
+					if (pair.Value is FunctionCallNode)
+						PatchLastCallToExpand();
+					// VARARG with B=0 already expands by default.
+
+					// Reserve headroom for expanded results.
+					while (_nextRegister < valueReg + 16)
+						AllocateRegister();
+
+					int startIndexConst = GetConstantIndex(new LuaNumber(arrayIndex));
+					Emit(OpCode.SETLIST, (byte)destReg, (ushort)startIndexConst,
+						(ushort)valueReg, OpFlags.KB);
+
+					// arrayIndex is not known at compile time for the expanded values;
+					// it's tracked by the runtime SETLIST.
+				}
+				else if (pair.Key is null)
 				{
 					// Array element: t[arrayIndex] = value.
 					int keyReg = AllocateRegister();

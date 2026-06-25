@@ -220,18 +220,22 @@ namespace AsyncLua.Values
 			{
 				lock (_lock)
 				{
-					return _status switch
+					switch (_status)
 					{
-						LuaTaskStatus.Completed => _result,
-						LuaTaskStatus.Faulted =>
+						case LuaTaskStatus.Completed:
+							return _result;
+						case LuaTaskStatus.Faulted:
+							if (_exception is not null)
+								System.Runtime.ExceptionServices.ExceptionDispatchInfo
+									.Capture(_exception).Throw();
 							throw new InvalidOperationException(
-								"The task is faulted. Check the Exception property.",
-								_exception),
-						LuaTaskStatus.Canceled =>
-							throw new InvalidOperationException("The task was cancelled."),
-						_ => throw new InvalidOperationException(
-							"The task is not yet completed.")
-					};
+								"The task is faulted. Check the Exception property.");
+						case LuaTaskStatus.Canceled:
+							throw new InvalidOperationException("The task was cancelled.");
+						default:
+							throw new InvalidOperationException(
+								"The task is not yet completed.");
+					}
 				}
 			}
 		}

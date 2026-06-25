@@ -272,6 +272,34 @@ namespace AsyncLua.Interpreting
 								}
 
 
+							case OpCode.SETLIST:
+								{
+									var table = registers[inst.A];
+									if (table is not LuaTable tbl)
+										throw RuntimeError("SETLIST: operand A must be a table.", frame.Function, pc);
+
+									// B is a constant pool index (KB flag must be set) pointing to the start index.
+									if (!inst.Flags.HasFlag(OpFlags.KB))
+										throw RuntimeError("SETLIST: KB flag must be set; B must be a constant index.", frame.Function, pc);
+									var startIndexValue = constants[inst.B];
+									if (!startIndexValue.TryToNumber(out var startIndex))
+										throw RuntimeError("SETLIST: constant at K[B] must be a number.", frame.Function, pc);
+
+									int valueBase = inst.C;
+									int count = frame.RegisterTop - valueBase;
+									if (count < 0)
+										count = 0;
+
+									for (int i = 0; i < count; i++)
+									{
+										tbl.Set(new LuaNumber(startIndex + i), registers[valueBase + i]);
+									}
+
+									pc++;
+									break;
+								}
+
+
 							case OpCode.GETGLOBAL:
 								{
 									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);

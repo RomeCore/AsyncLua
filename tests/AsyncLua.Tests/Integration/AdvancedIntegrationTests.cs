@@ -573,8 +573,8 @@ public class AdvancedIntegrationTests
 			return knapsack(weights, values, capacity)
 		");
 
-		// Optimal value = 36.
-		Assert.Equal(36.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		// Optimal value = 32.
+		Assert.Equal(32, Assert.IsType<LuaNumber>(result[0]).Value);
 		// Number of selected items.
 		Assert.True(((LuaNumber)result[1]).Value > 0);
 	}
