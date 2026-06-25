@@ -265,16 +265,16 @@ public class AdvancedIntegrationTests
 		var strLib = new LuaTable();
 		state.Globals.Set(new LuaString("string"), strLib);
 
-		strLib.Set(new LuaString("sub"), new LuaCallbackFunction(
+			strLib.Set(new LuaString("sub"), new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				var s = args[0].ToString();
 				var start = (int)((LuaNumber)args[1]).Value;
-				var len = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : s.Length;
-				// Lua is 1-indexed.
+				var endIdx = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : s.Length;
+				// Lua is 1-indexed, and end index is inclusive.
 				start = Math.Max(1, start) - 1;
-				len = Math.Min(len, s.Length - start);
-				return new LuaTuple(new LuaString(s.Substring(start, len)));
+				var count = Math.Min(endIdx, s.Length) - start;
+				return new LuaTuple(new LuaString(s.Substring(start, count)));
 			}, "string.sub"));
 
 		strLib.Set(new LuaString("len"), new LuaCallbackFunction(

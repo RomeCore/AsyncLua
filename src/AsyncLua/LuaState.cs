@@ -127,6 +127,22 @@ namespace AsyncLua
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
+		/// <summary>
+		/// Parses and compiles the specified Lua code and returns the disassembled bytecode
+		/// as a human-readable string. Does not execute the code.
+		/// </summary>
+		/// <param name="code">The Lua source code to compile.</param>
+		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+		/// <returns>A multi-line string showing the compiled bytecode.</returns>
+		public string DumpBytecode(string code, string? sourceName = null)
+		{
+			if (code is null)
+				throw new ArgumentNullException(nameof(code));
+
+			var block = _parser.Parse(code);
+			var prototype = Compiling.AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			return prototype.Disassemble();
+		}
 		public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null)
 		{
 			if (code is null)

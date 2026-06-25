@@ -104,14 +104,14 @@ public class StressIntegrationTests
 		// string functions
 		var strLib = new LuaTable();
 		state.Globals.Set(new LuaString("string"), strLib);
-		strLib.Set(new LuaString("sub"), new LuaCallbackFunction(
+			strLib.Set(new LuaString("sub"), new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				var s = args[0].ToString();
 				var start = Math.Max(1, (int)((LuaNumber)args[1]).Value) - 1;
-				var len = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : s.Length;
-				len = Math.Min(len, s.Length - start);
-				return new LuaTuple(new LuaString(s.Substring(start, len)));
+				var endIdx = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : s.Length;
+				var count = Math.Min(endIdx, s.Length) - start;
+				return new LuaTuple(new LuaString(s.Substring(start, count)));
 			}, "string.sub"));
 		strLib.Set(new LuaString("len"), new LuaCallbackFunction(
 			(ctx, args) => new LuaTuple(new LuaNumber(args[0].ToString().Length)), "string.len"));

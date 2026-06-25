@@ -118,16 +118,16 @@ namespace AsyncLua.Parsing
 					b => b.Token("number"),
 					b => b.Token("string")
 				))
-				.Transform(v => new LiteralNode { Literal = v.GetIntermediateValue<LuaValue>() });
+				.Transform(v => new LiteralNode { Literal = v.GetIntermediateValue<LuaValue>(), Position = CodePositionalInfo.From(v) });
 
 			builder.CreateRule("identifier_expr")
 				.Token("identifier")
 				.ToSequence()
-				.Transform(v => new IdentifierNode { Name = v.Text });
+				.Transform(v => new IdentifierNode { Name = v.Text, Position = CodePositionalInfo.From(v) });
 
 			builder.CreateRule("vararg_expr")
 				.Literal("...")
-				.Transform(_ => new VarArgumentNode());
+				.Transform(v => new VarArgumentNode { Position = CodePositionalInfo.From(v) });
 
 			builder.CreateRule("table_constructor")
 				.Literal("{")
@@ -139,7 +139,7 @@ namespace AsyncLua.Parsing
 				.Transform(v =>
 				{
 					var pairs = v.Children[1].SelectValues<TableConstructionPair>();
-					return new TableConstructionNode { Pairs = pairs.ToArray() };
+					return new TableConstructionNode { Pairs = pairs.ToArray(), Position = CodePositionalInfo.From(v) };
 				});
 
 			builder.CreateRule("table_field")
@@ -210,7 +210,8 @@ namespace AsyncLua.Parsing
 						IsAsync = v.Children[0].Length > 0,
 						Parameters = parameters.Where(p => !p.IsVarArg).ToArray(),
 						HasVarArg = parameters.Any(p => p.IsVarArg),
-						Body = v.GetValue<BlockNode>(3)
+						Body = v.GetValue<BlockNode>(3),
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -223,7 +224,8 @@ namespace AsyncLua.Parsing
 					s => s.Literal(","))
 				.Transform(v => new AwaitExpressionNode
 				{
-					Expressions = v.SelectArray<ExpressionNode>(1)
+					Expressions = v.SelectArray<ExpressionNode>(1),
+					Position = CodePositionalInfo.From(v)
 				});
 
 			// ── Primary ──────────────────────────────────────────────────
@@ -255,7 +257,8 @@ namespace AsyncLua.Parsing
 						{
 							Target = null!, // filled later
 							Method = v.GetIntermediateValue<string>(1),
-							Arguments = v.Children[3].SelectValues<ExpressionNode>().ToArray()
+							Arguments = v.Children[3].SelectValues<ExpressionNode>().ToArray(),
+							Position = CodePositionalInfo.From(v)
 						}),
 					// index: obj[key]
 					b => b
@@ -265,7 +268,8 @@ namespace AsyncLua.Parsing
 						.Transform(v => new IndexNode
 						{
 							Target = null!, // filled later
-							Index = v.GetValue<ExpressionNode>(1)
+							Index = v.GetValue<ExpressionNode>(1),
+							Position = CodePositionalInfo.From(v)
 						}),
 					// member access: obj.key
 					b => b
@@ -274,7 +278,12 @@ namespace AsyncLua.Parsing
 						.Transform(v => new IndexNode
 						{
 							Target = null!, // filled later
-							Index = new LiteralNode { Literal = new LuaString(v.GetIntermediateValue<string>(1)) }
+							Index = new LiteralNode
+							{
+								Literal = new LuaString(v.GetIntermediateValue<string>(1)),
+								Position = CodePositionalInfo.From(v[1])
+							},
+							Position = CodePositionalInfo.From(v)
 						}),
 					// function call: obj(args)
 					b => b
@@ -287,7 +296,8 @@ namespace AsyncLua.Parsing
 						{
 							Target = null!, // filled later
 							Method = null,
-							Arguments = v.Children[1].SelectValues<ExpressionNode>().ToArray()
+							Arguments = v.Children[1].SelectValues<ExpressionNode>().ToArray(),
+							Position = CodePositionalInfo.From(v)
 						})
 				))
 				.Transform(v =>
@@ -332,7 +342,8 @@ namespace AsyncLua.Parsing
 						{
 							target = new AwaitExpressionNode
 							{
-								Expressions = new[] { target }
+								Expressions = new[] { target },
+								Position = CodePositionalInfo.From(v)
 							};
 						}
 						else
@@ -344,7 +355,12 @@ namespace AsyncLua.Parsing
 								"#" => UnaryOperatorType.LengthOf,
 								_ => throw new InvalidOperationException($"Unknown unary operator '{opStr}'")
 							};
-							target = new UnaryOperatorNode { Type = type, Operand = target };
+							target = new UnaryOperatorNode
+							{
+								Type = type,
+								Operand = target,
+								Position = CodePositionalInfo.From(v)
+							};
 						}
 					}
 
@@ -370,7 +386,8 @@ namespace AsyncLua.Parsing
 						{
 							Operator = BinaryOperatorType.Exponentiate,
 							Left = left,
-							Right = expr
+							Right = expr,
+							Position = CodePositionalInfo.From(v)
 						};
 					}
 					return expr;
@@ -422,7 +439,8 @@ namespace AsyncLua.Parsing
 						{
 							Operator = BinaryOperatorType.Concatenate,
 							Left = left,
-							Right = expr
+							Right = expr,
+							Position = CodePositionalInfo.From(v)
 						};
 					}
 					return expr;
@@ -538,7 +556,8 @@ namespace AsyncLua.Parsing
 				{
 					Operator = opType,
 					Left = expr,
-					Right = right
+					Right = right,
+					Position = CodePositionalInfo.From(result)
 				};
 			}
 
@@ -558,7 +577,8 @@ namespace AsyncLua.Parsing
 				.ZeroOrMoreSeparated(b => b.Rule("statement"), s => s.OneOrMore(b => b.Rule("statement_separator")))
 				.Transform(v => new BlockNode
 				{
-					Statements = v.SelectValues<StatementNode>().ToArray()
+					Statements = v.SelectValues<StatementNode>().ToArray(),
+					Position = CodePositionalInfo.From(v)
 				});
 
 			// ── L-value (left-hand side of assignment) ────────────────
@@ -569,7 +589,11 @@ namespace AsyncLua.Parsing
 					b => b
 						.Literal(".")
 						.Token("identifier")
-						.Transform(v => new { Index = new LiteralNode { Literal = new LuaString(v.GetIntermediateValue<string>(1)) } }),
+						.Transform(v => new { Index = new LiteralNode
+						{
+							Literal = new LuaString(v.GetIntermediateValue<string>(1)),
+							Position = CodePositionalInfo.From(v)
+						} }),
 					b => b
 						.Literal("[")
 						.Rule("expression")
@@ -587,7 +611,8 @@ namespace AsyncLua.Parsing
 						target = new IndexNode
 						{
 							Target = target,
-							Index = (ExpressionNode)idx!
+							Index = (ExpressionNode)idx!,
+							Position = CodePositionalInfo.From(v)
 						};
 					}
 
@@ -598,22 +623,30 @@ namespace AsyncLua.Parsing
 
 			builder.CreateRule("break_statement")
 				.Keyword("break")
-				.Transform(_ => new BreakNode());
+				.Transform(v => new BreakNode { Position = CodePositionalInfo.From(v) });
 
 			builder.CreateRule("continue_statement")
 				.Keyword("continue")
-				.Transform(_ => new ContinueNode());
+				.Transform(v => new ContinueNode { Position = CodePositionalInfo.From(v) });
 
 			builder.CreateRule("goto_statement")
 				.Keyword("goto")
 				.Token("identifier")
-				.Transform(v => new GotoNode { LabelName = v.GetIntermediateValue<string>(1) });
+				.Transform(v => new GotoNode
+				{
+					LabelName = v.GetIntermediateValue<string>(1),
+					Position = CodePositionalInfo.From(v)
+				});
 
 			builder.CreateRule("label_statement")
 				.Literal("::")
 				.Token("identifier")
 				.Literal("::")
-				.Transform(v => new LabelNode { Name = v.GetIntermediateValue<string>(1) });
+				.Transform(v => new LabelNode
+				{
+					Name = v.GetIntermediateValue<string>(1),
+					Position = CodePositionalInfo.From(v)
+				});
 
 			builder.CreateRule("return_statement")
 				.Keyword("return")
@@ -626,16 +659,24 @@ namespace AsyncLua.Parsing
 					if (v.Children[1].Length > 0)
 					{
 						var values = v.Children[1].Children[0].SelectValues<ExpressionNode>();
-						return new ReturnNode { Values = values.ToArray() };
+						return new ReturnNode
+						{
+							Values = values.ToArray(),
+							Position = CodePositionalInfo.From(v)
+						};
 					}
-					return new ReturnNode();
+					return new ReturnNode { Position = CodePositionalInfo.From(v) };
 				});
 
 			builder.CreateRule("do_statement")
 				.Keyword("do")
 				.Rule("block")
 				.Keyword("end")
-				.Transform(v => new DoNode { Body = v.GetValue<BlockNode>(1) });
+				.Transform(v => new DoNode
+				{
+					Body = v.GetValue<BlockNode>(1),
+					Position = CodePositionalInfo.From(v)
+				});
 
 			// ── If statement ──────────────────────────────────────────
 
@@ -670,7 +711,8 @@ namespace AsyncLua.Parsing
 						Condition = v.GetValue<ExpressionNode>(1),
 						Body = v.GetValue<BlockNode>(3),
 						ElseIfClauses = elseifClauses,
-						ElseBlock = elseBlock
+						ElseBlock = elseBlock,
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -685,7 +727,8 @@ namespace AsyncLua.Parsing
 				.Transform(v => new WhileNode
 				{
 					Condition = v.GetValue<ExpressionNode>(1),
-					Body = v.GetValue<BlockNode>(3)
+					Body = v.GetValue<BlockNode>(3),
+					Position = CodePositionalInfo.From(v)
 				});
 
 			builder.CreateRule("repeat_statement")
@@ -696,7 +739,8 @@ namespace AsyncLua.Parsing
 				.Transform(v => new RepeatNode
 				{
 					Body = v.GetValue<BlockNode>(1),
-					Condition = v.GetValue<ExpressionNode>(3)
+					Condition = v.GetValue<ExpressionNode>(3),
+					Position = CodePositionalInfo.From(v)
 				});
 
 			// ── For statements ────────────────────────────────────────
@@ -726,7 +770,8 @@ namespace AsyncLua.Parsing
 						Start = v.GetValue<ExpressionNode>(3),
 						Limit = v.GetValue<ExpressionNode>(5),
 						Step = step,
-						Body = v.GetValue<BlockNode>(8)
+						Body = v.GetValue<BlockNode>(8),
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -750,7 +795,8 @@ namespace AsyncLua.Parsing
 					{
 						Variables = vars.ToArray(),
 						Expressions = exprs.ToArray(),
-						Body = v.GetValue<BlockNode>(5)
+						Body = v.GetValue<BlockNode>(5),
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -784,7 +830,11 @@ namespace AsyncLua.Parsing
 					if (v.Children[4].Length > 0)
 					{
 						// Method-style: function obj.method(...)
-						targetObject = new IdentifierNode { Name = string.Join(".", nameParts) };
+						targetObject = new IdentifierNode
+						{
+							Name = string.Join(".", nameParts),
+							Position = CodePositionalInfo.From(v)
+						};
 						methodName = v.Children[4].Children[0].GetIntermediateValue<string>(1);
 						funcName = methodName;
 					}
@@ -793,7 +843,10 @@ namespace AsyncLua.Parsing
 						funcName = nameParts.Last();
 						if (nameParts.Count > 1)
 						{
-							targetObject = new IdentifierNode { Name = string.Join(".", nameParts.Take(nameParts.Count - 1)) };
+							targetObject = new IdentifierNode {
+								Name = string.Join(".", nameParts.Take(nameParts.Count - 1)),
+								Position = CodePositionalInfo.From(v)
+							};
 						}
 					}
 
@@ -808,7 +861,8 @@ namespace AsyncLua.Parsing
 						Scope = null, // global
 						Parameters = parameters.Where(p => !p.IsVarArg).ToArray(),
 						HasVarArg = parameters.Any(p => p.IsVarArg),
-						Body = v.GetValue<BlockNode>(6)
+						Body = v.GetValue<BlockNode>(6),
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -831,7 +885,8 @@ namespace AsyncLua.Parsing
 						Scope = VariableScope.Local,
 						Parameters = parameters.Where(p => !p.IsVarArg).ToArray(),
 						HasVarArg = parameters.Any(p => p.IsVarArg),
-						Body = v.GetValue<BlockNode>(5)
+						Body = v.GetValue<BlockNode>(5),
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -861,7 +916,8 @@ namespace AsyncLua.Parsing
 					{
 						Scope = VariableScope.Local,
 						Targets = vars.Select(n => (ExpressionNode)new IdentifierNode { Name = n }).ToArray(),
-						Values = values
+						Values = values,
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -876,7 +932,8 @@ namespace AsyncLua.Parsing
 				.Transform(v => new LockNode
 				{
 					Target = v.GetValue<ExpressionNode>(1),
-					Body = v.GetValue<BlockNode>(3)
+					Body = v.GetValue<BlockNode>(3),
+					Position = CodePositionalInfo.From(v)
 				});
 
 			builder.CreateRule("await_statement")
@@ -888,8 +945,10 @@ namespace AsyncLua.Parsing
 				{
 					AwaitExpression = new AwaitExpressionNode
 					{
-						Expressions = v.SelectArray<ExpressionNode>(1)
-					}
+						Expressions = v.SelectArray<ExpressionNode>(1),
+						Position = CodePositionalInfo.From(v[1])
+					},
+					Position = CodePositionalInfo.From(v)
 				});
 
 			// ── AsyncLua extensions: try-catch / throw ─────────────────
@@ -913,7 +972,8 @@ namespace AsyncLua.Parsing
 					{
 						TryBody = v.GetValue<BlockNode>(1),
 						CatchBody = v.GetValue<BlockNode>(4),
-						ExceptionMessageVariable = exceptionVarName
+						ExceptionMessageVariable = exceptionVarName,
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -924,7 +984,8 @@ namespace AsyncLua.Parsing
 				{
 					return new ThrowNode
 					{
-						Exception = v.GetValue<ExpressionNode>(1)
+						Exception = v.GetValue<ExpressionNode>(1),
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -940,7 +1001,6 @@ namespace AsyncLua.Parsing
 					{
 						Left = v.GetValue<ExpressionNode>(0),
 						Right = v.GetValue<ExpressionNode>(2),
-
 						Operator = v.GetValue<string>(1) switch
 						{
 							"+=" => BinaryOperatorType.Add,
@@ -957,7 +1017,8 @@ namespace AsyncLua.Parsing
 							"|=" => BinaryOperatorType.BitOr,
 							"~=" => BinaryOperatorType.BitXor,
 							_ => throw new SemanticException(v, $"Unknown operator '{v.GetValue<string>(1)}'")
-						}
+						},
+						Position = CodePositionalInfo.From(v)
 					};
 				});
 
@@ -979,7 +1040,8 @@ namespace AsyncLua.Parsing
 							return new AssignmentNode
 							{
 								Targets = targets.ToArray(),
-								Values = values.ToArray()
+								Values = values.ToArray(),
+								Position = CodePositionalInfo.From(v)
 							};
 						}),
 					// Call statement: just a function call
@@ -990,7 +1052,11 @@ namespace AsyncLua.Parsing
 						{
 							var expr = v.GetValue<ExpressionNode>(0);
 							if (expr is FunctionCallNode call)
-								return new CallStatementNode { Call = call };
+								return new CallStatementNode
+								{
+									Call = call,
+									Position = CodePositionalInfo.From(v)
+								};
 							throw new SemanticException(v[0], "Expected a function call as a statement.");
 						})
 				);

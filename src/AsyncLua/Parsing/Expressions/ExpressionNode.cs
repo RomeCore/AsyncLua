@@ -7,7 +7,7 @@ namespace AsyncLua.Parsing.Expressions
 	/// Expressions represent values in Lua: literals, variables, operators,
 	/// function calls, table constructors, etc.
 	/// </remarks>
-	public abstract class ExpressionNode
+	public abstract class ExpressionNode : ASTNode
 	{
 	}
 }

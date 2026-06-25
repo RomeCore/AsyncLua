@@ -84,6 +84,19 @@ public class AsyncIntegrationTests
 				return new LuaTuple(new LuaNumber(n));
 			}, "tonumber"));
 
+		// string library
+		var strLib = new LuaTable();
+		state.Globals.Set(new LuaString("string"), strLib);
+			strLib.Set(new LuaString("sub"), new LuaCallbackFunction(
+			(ctx, args) =>
+			{
+				var s = args[0].ToString();
+				var start = Math.Max(1, (int)((LuaNumber)args[1]).Value) - 1;
+				var endIdx = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : s.Length;
+				var count = Math.Min(endIdx, s.Length) - start;
+				return new LuaTuple(new LuaString(s.Substring(start, count)));
+			}, "string.sub"));
+
 		return state;
 	}
 

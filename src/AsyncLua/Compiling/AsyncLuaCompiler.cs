@@ -32,6 +32,8 @@ namespace AsyncLua.Compiling
 		// ── Output ──────────────────────────────────────────────────────
 
 		private readonly List<Instruction> _instructions = new();
+		private readonly List<CodePositionalInfo> _positions = new();
+		private CodePositionalInfo _currentPosition;
 		private readonly List<LuaValue> _constants = new();
 		private readonly Dictionary<LuaValue, int> _constantMap = new();
 		private readonly List<FunctionPrototype> _innerPrototypes = new();
@@ -119,6 +121,7 @@ namespace AsyncLua.Compiling
 
 		private void CompileStatement(StatementNode stmt)
 		{
+			SetPosition(stmt.Position);
 			switch (stmt)
 			{
 				case AssignmentNode assign: CompileAssignment(assign); break;
@@ -169,33 +172,89 @@ namespace AsyncLua.Compiling
 				}
 			}
 
-			// Compile all r-values into consecutive registers (starting at baseReg).
-			// Note: _nextRegister has been advanced past the target slots; values go
-			// into the same baseReg..baseReg+valueCount-1 range because targets and
-			// values share the same starting register in our layout.
-			// Reset _nextRegister to baseReg to reuse those slots for values.
-			_nextRegister = baseReg;
+			// Compile all r-values. Expression compilation may use AllocateRegister()
+			// for temporary registers, which can displace subsequent value slots.
+			// We record the actual destination register for each value and then
+			// copy results to the expected baseReg+i positions if needed.
+			int[] actualValueRegs = new int[valueCount];
 			for (int i = 0; i < valueCount; i++)
 			{
-				int reg = AllocateRegister(); // = baseReg + i
-				CompileExpression(node.Values[i], reg);
+				int destReg = AllocateRegister();
+				actualValueRegs[i] = destReg;
+				CompileExpression(node.Values[i], destReg);
+
+				// If there are more targets than values, and the value is a function call
+				// or vararg, expand it to fill the targets (standard Lua multi-assignment).
+				if (valueCount == 1 && targetCount > 1)
+				{
+					var lastVal = node.Values[i];
+					if (lastVal is FunctionCallNode || lastVal is VarArgumentNode)
+					{
+						// Patch the CALL to expect targetCount results (exact fit).
+						PatchLastCallToExact((ushort)targetCount);
+					}
+				}
 			}
+
+			// If the first multi-return value needs headroom (C=0 on CALL),
+			// pre-allocate extra slots to avoid overwriting destination registers.
+			if (valueCount == 1 && targetCount > 1 &&
+				(node.Values[0] is FunctionCallNode || node.Values[0] is VarArgumentNode))
+			{
+				while (_nextRegister < actualValueRegs[0] + targetCount + 8)
+					AllocateRegister();
+			}
+
+			// Move value results to the expected baseReg+i positions for the write phase.
+			// For multi-return calls (1 value → N targets), the CALL returns N results
+			// into consecutive registers starting at actualValueRegs[0].
+			bool isMultiReturnCall = valueCount == 1 && targetCount > 1 &&
+				(node.Values[0] is FunctionCallNode || node.Values[0] is VarArgumentNode);
+			int effectiveValueCount = isMultiReturnCall ? targetCount : valueCount;
+			int copyCount = Math.Min(effectiveValueCount, targetCount);
+			int[] valueRegs = new int[targetCount];
+			for (int i = 0; i < copyCount; i++)
+			{
+				int expectedReg = baseReg + i;
+				// For multi-return calls, results land in consecutive registers
+				// starting from actualValueRegs[0]. For regular expressions,
+				// each value is in its own actualValueRegs[i].
+				int actualReg = isMultiReturnCall
+					? actualValueRegs[0] + i
+					: actualValueRegs[i];
+				if (actualReg != expectedReg)
+				{
+					valueRegs[i] = expectedReg;
+					Emit(OpCode.MOVE, expectedReg, actualReg);
+				}
+				else
+				{
+					valueRegs[i] = expectedReg;
+				}
+			}
+			// For targets beyond the expanded results, nil-fill is handled below.
 
 			// Ensure _nextRegister covers all target slots (in case valueCount < targetCount).
 			if (_nextRegister < baseReg + targetCount)
 				_nextRegister = baseReg + targetCount;
 
 			// Emit nil-padding for targets with no corresponding value.
-			for (int i = valueCount; i < targetCount; i++)
+			// Skip if the single value is a function call / vararg (it was patched to expand).
+			bool skipNilPadding = valueCount == 1 && targetCount > 1 &&
+				(node.Values[0] is FunctionCallNode || node.Values[0] is VarArgumentNode);
+			if (!skipNilPadding)
 			{
-				Emit(OpCode.MOVE, baseReg + i, GetConstantIndex(LuaNil.Instance),
-					flags: OpFlags.KB);
+				for (int i = valueCount; i < targetCount; i++)
+				{
+					Emit(OpCode.MOVE, baseReg + i, GetConstantIndex(LuaNil.Instance),
+						flags: OpFlags.KB);
+				}
 			}
 
-			// Assign to targets (non-local).
+			// Assign to targets.
 			for (int i = 0; i < targetCount; i++)
 			{
-				int srcReg = baseReg + i;
+				int srcReg = i < valueCount ? valueRegs[i] : (baseReg + i);
 				var target = node.Targets[i];
 				if (target is IdentifierNode ident)
 				{
@@ -432,6 +491,21 @@ namespace AsyncLua.Compiling
 				if (inst.Code == OpCode.CALL)
 				{
 					_instructions[j] = new Instruction(inst.Code, inst.A, inst.B, 0, inst.Flags);
+					return;
+				}
+			}
+		}
+		/// <summary>
+		/// Finds the last CALL instruction emitted and changes its C operand to the specified exact count.
+		/// </summary>
+		private void PatchLastCallToExact(ushort resultCount)
+		{
+			for (int j = _instructions.Count - 1; j >= 0; j--)
+			{
+				var inst = _instructions[j];
+				if (inst.Code == OpCode.CALL)
+				{
+					_instructions[j] = new Instruction(inst.Code, inst.A, inst.B, resultCount, inst.Flags);
 					return;
 				}
 			}
@@ -939,6 +1013,7 @@ namespace AsyncLua.Compiling
 		/// </summary>
 		private void CompileExpression(ExpressionNode expr, int destReg)
 		{
+			SetPosition(expr.Position);
 			switch (expr)
 			{
 				case LiteralNode lit:
@@ -1475,6 +1550,16 @@ namespace AsyncLua.Compiling
 		private void Emit(OpCode code, int a = 0, int b = 0, int c = 0, OpFlags flags = OpFlags.None)
 		{
 			_instructions.Add(new Instruction(code, (byte)a, (ushort)b, (ushort)c, flags));
+			_positions.Add(_currentPosition);
+		}
+
+		/// <summary>
+		/// Sets the source position to be associated with subsequently emitted instructions.
+		/// </summary>
+		private void SetPosition(CodePositionalInfo pos)
+		{
+			if (pos.IsValid)
+				_currentPosition = pos;
 		}
 
 		private void EmitSETGLOBAL(string name, int srcReg)
@@ -1503,6 +1588,7 @@ namespace AsyncLua.Compiling
 				parameterCount: (byte)_parameterCount,
 				isVararg: _isVararg,
 				sourceName: _sourceName,
+				positions: _positions.Count > 0 ? _positions.ToArray() : null,
 				upvalueDescriptions: _upvalueDescriptions.ToArray()
 			);
 		}

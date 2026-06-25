@@ -3,7 +3,7 @@
 	/// <summary>
 	/// Represents a block of statements in Lua.
 	/// </summary>
-	public class BlockNode
+	public class BlockNode : StatementNode
 	{
 		/// <summary>
 		/// Gets or sets the array of statements within this block.

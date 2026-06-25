@@ -156,33 +156,46 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.GETTABLE:
 								{
-									var key = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var key = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var table = registers[inst.B];
 									var mode = context.Settings.MetatableMode;
 
-									// Try direct table access first.
-									if (table is LuaTable tbl)
+									// Walk the __index chain to resolve the key.
+									var current = table;
+									while (true)
 									{
-										var result = tbl.Get(key);
-										if (result.Type != LuaType.Nil)
+										// Try direct table access first.
+										if (current is LuaTable curTbl)
 										{
-											registers[inst.A] = result;
+											var result = curTbl.Get(key);
+											if (result.Type != LuaType.Nil)
+											{
+												registers[inst.A] = result;
+												pc++;
+												break;
+											}
+										}
+
+										// Key not found — try __index metamethod.
+										var index = GetMetamethod(current, LuaMetatableEvent.Index, mode);
+										if (index.Type == LuaType.Nil)
+										{
+											// No __index — return nil (or error if not a table).
+											if (current is LuaTable)
+												registers[inst.A] = LuaNil.Instance;
+											else
+												throw RuntimeError("GETTABLE: operand B must be a table.", frame.Function, pc);
 											pc++;
 											break;
 										}
-									}
 
-									// Key not found (or not a table) — try __index metamethod.
-									var index = GetMetamethod(table, LuaMetatableEvent.Index, mode);
-									if (index.Type != LuaType.Nil)
-									{
 										if (index is LuaFunction func)
 										{
 											LuaTuple mmResult;
 											if (async)
-												mmResult = await func.InvokeAsync(context, new[] { table, key });
+												mmResult = await func.InvokeAsync(context, new[] { current, key });
 											else
-												mmResult = func.Invoke(context, new[] { table, key });
+												mmResult = func.Invoke(context, new[] { current, key });
 											registers[inst.A] = mmResult.Count > 0 ? mmResult[0] : LuaNil.Instance;
 											pc++;
 											break;
@@ -190,26 +203,24 @@ namespace AsyncLua.Interpreting
 
 										if (index is LuaTable indexTable)
 										{
-											registers[inst.A] = indexTable.Get(key);
-											pc++;
-											break;
+											// Chain to the index table and continue the loop.
+											current = indexTable;
+											continue;
 										}
+
+										// __index is some other non-nil, non-function, non-table value — return nil.
+										registers[inst.A] = LuaNil.Instance;
+										pc++;
+										break;
 									}
 
-									// Fallback: if it's a table, return nil; otherwise it's an error.
-									if (table is LuaTable)
-										registers[inst.A] = LuaNil.Instance;
-									else
-										throw new LuaRuntimeException("GETTABLE: operand B must be a table.");
-
-									pc++;
 									break;
 								}
 
 							case OpCode.SETTABLE:
 								{
-									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var value = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var value = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var table = registers[inst.A];
 									var mode = context.Settings.MetatableMode;
 
@@ -252,7 +263,7 @@ namespace AsyncLua.Interpreting
 										}
 										else
 										{
-											throw new LuaRuntimeException("SETTABLE: operand A must be a table.");
+											throw RuntimeError("SETTABLE: operand A must be a table.", frame.Function, pc);
 										}
 									}
 
@@ -263,7 +274,7 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.GETGLOBAL:
 								{
-									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
 									registers[inst.A] = globals.Get(key);
 									pc++;
 									break;
@@ -271,7 +282,7 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.SETGLOBAL:
 								{
-									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
 									globals.Set(key, registers[inst.A]);
 									pc++;
 									break;
@@ -304,7 +315,7 @@ namespace AsyncLua.Interpreting
 								{
 									var innerProtos = frame.Function.InnerPrototypes;
 									if (inst.B >= innerProtos.Length)
-										throw new LuaRuntimeException("CLOSURE: inner prototype index out of range.");
+										throw RuntimeError("CLOSURE: inner prototype index out of range.", frame.Function, pc);
 									var proto = innerProtos[inst.B];
 
 									var upvalueDescs = proto.UpvalueDescriptions;
@@ -334,7 +345,7 @@ namespace AsyncLua.Interpreting
 										{
 											// Capture from an outer scope: reuse from the current closure's upvalues.
 											var closure = frame.Closure
-												?? throw new LuaRuntimeException("CLOSURE: non-local upvalue requires an enclosing closure.");
+												?? throw RuntimeError("CLOSURE: non-local upvalue requires an enclosing closure.", frame.Function, pc);
 											upvalues[i] = closure.Upvalues[desc.RegisterIndex];
 										}
 									}
@@ -347,9 +358,9 @@ namespace AsyncLua.Interpreting
 							case OpCode.GETUPVAL:
 								{
 									var closure = frame.Closure
-										?? throw new LuaRuntimeException("GETUPVAL: no closure in current frame.");
+										?? throw RuntimeError("GETUPVAL: no closure in current frame.", frame.Function, pc);
 									if (inst.B >= closure.Upvalues.Length)
-										throw new LuaRuntimeException("GETUPVAL: invalid upvalue index.");
+										throw RuntimeError("GETUPVAL: invalid upvalue index.", frame.Function, pc);
 									registers[inst.A] = closure.Upvalues[inst.B].Value;
 									pc++;
 									break;
@@ -358,9 +369,9 @@ namespace AsyncLua.Interpreting
 							case OpCode.SETUPVAL:
 								{
 									var closure = frame.Closure
-										?? throw new LuaRuntimeException("SETUPVAL: no closure in current frame.");
+										?? throw RuntimeError("SETUPVAL: no closure in current frame.", frame.Function, pc);
 									if (inst.A >= closure.Upvalues.Length)
-										throw new LuaRuntimeException("SETUPVAL: invalid upvalue index.");
+										throw RuntimeError("SETUPVAL: invalid upvalue index.", frame.Function, pc);
 									closure.Upvalues[inst.A].Value = registers[inst.B];
 									pc++;
 									break;
@@ -388,10 +399,10 @@ namespace AsyncLua.Interpreting
 							case OpCode.AWAIT:
 								{
 									if (!async)
-										throw new LuaRuntimeException("AWAIT is only supported in CallAsync, not Call.");
+										throw RuntimeError("AWAIT is only supported in CallAsync, not Call.", frame.Function, pc);
 
 									var task = registers[inst.A] as LuaTask
-										?? throw new LuaRuntimeException("AWAIT: operand A must be a LuaTask.");
+										?? throw RuntimeError("AWAIT: operand A must be a LuaTask.", frame.Function, pc);
 
 									LuaTuple results;
 									try
@@ -405,7 +416,7 @@ namespace AsyncLua.Interpreting
 									catch (Exception ex)
 									{
 										// Wrap non-Lua exceptions (e.g. from faulted tasks) so Lua try/catch can handle them.
-										throw new LuaRuntimeException(ex.Message, ex);
+										throw RuntimeError(ex.Message, frame.Function, pc - 1, ex);
 									}
 
 									// C = 0 means "accept all results" (Lua multiple-return convention).
@@ -434,77 +445,77 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.MOVE:
 								{
-									registers[inst.A] = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
+									registers[inst.A] = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.ADD:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Add, metatableMode, context);
-									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Add, inst);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Add, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.SUB:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Sub, metatableMode, context);
-									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Sub, inst);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Sub, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.MUL:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Mul, metatableMode, context);
-									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Mul, inst);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Mul, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.DIV:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Div, metatableMode, context);
-									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Div, inst);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Div, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.IDIV:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.IDiv, metatableMode, context);
-									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.IDiv, inst);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.IDiv, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.EQ:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Eq, metatableMode, context);
 									registers[inst.A] = mmResult.HasValue
 										? LuaBoolean.FromBoolean(mmResult.Value)
-										: CompareOp(lhs, rhs, CompareOpKind.Eq, inst);
+										: CompareOp(lhs, rhs, CompareOpKind.Eq, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.LT:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									// Try __lt first, then fall back to __le on swapped operands (Lua 5.3 semantics).
 									var mmResult = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Lt, metatableMode, context);
 									if (mmResult.HasValue)
@@ -516,7 +527,7 @@ namespace AsyncLua.Interpreting
 										var mmLeSwapped = await TryComparisonMetamethodAsync(rhs, lhs, LuaMetatableEvent.Le, metatableMode, context);
 										registers[inst.A] = mmLeSwapped.HasValue
 											? LuaBoolean.FromBoolean(!mmLeSwapped.Value)
-											: CompareOp(lhs, rhs, CompareOpKind.Lt, inst);
+											: CompareOp(lhs, rhs, CompareOpKind.Lt, inst, frame, pc);
 									}
 									pc++;
 									break;
@@ -524,8 +535,8 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.LE:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									// Try __le first, then fall back to __lt on swapped operands (Lua 5.3 semantics).
 									var mmResult = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Le, metatableMode, context);
 									if (mmResult.HasValue)
@@ -537,7 +548,7 @@ namespace AsyncLua.Interpreting
 										var mmLtSwapped = await TryComparisonMetamethodAsync(rhs, lhs, LuaMetatableEvent.Lt, metatableMode, context);
 										registers[inst.A] = mmLtSwapped.HasValue
 											? LuaBoolean.FromBoolean(!mmLtSwapped.Value)
-											: CompareOp(lhs, rhs, CompareOpKind.Le, inst);
+											: CompareOp(lhs, rhs, CompareOpKind.Le, inst, frame, pc);
 									}
 									pc++;
 									break;
@@ -545,8 +556,8 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.GT:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									// GT: try __lt on swapped operands (b < a), then fallback.
 									var mmResult = await TryComparisonMetamethodAsync(rhs, lhs, LuaMetatableEvent.Lt, metatableMode, context);
 									if (mmResult.HasValue)
@@ -558,7 +569,7 @@ namespace AsyncLua.Interpreting
 										var mmLe = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Le, metatableMode, context);
 										registers[inst.A] = mmLe.HasValue
 											? LuaBoolean.FromBoolean(!mmLe.Value)
-											: CompareOp(lhs, rhs, CompareOpKind.Gt, inst);
+											: CompareOp(lhs, rhs, CompareOpKind.Gt, inst, frame, pc);
 									}
 									pc++;
 									break;
@@ -566,8 +577,8 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.GE:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									// GE: try __le on swapped operands (b <= a), then fallback.
 									var mmResult = await TryComparisonMetamethodAsync(rhs, lhs, LuaMetatableEvent.Le, metatableMode, context);
 									if (mmResult.HasValue)
@@ -579,7 +590,7 @@ namespace AsyncLua.Interpreting
 										var mmLt = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Lt, metatableMode, context);
 										registers[inst.A] = mmLt.HasValue
 											? LuaBoolean.FromBoolean(!mmLt.Value)
-											: CompareOp(lhs, rhs, CompareOpKind.Ge, inst);
+											: CompareOp(lhs, rhs, CompareOpKind.Ge, inst, frame, pc);
 									}
 									pc++;
 									break;
@@ -587,125 +598,158 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.POW:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Pow, metatableMode, context);
-									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Pow, inst);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Pow, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.MOD:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Mod, metatableMode, context);
-									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Mod, inst);
+									registers[inst.A] = mmResult ?? ArithOp(lhs, rhs, ArithOpKind.Mod, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.CONCAT:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
-									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Concat, metatableMode, context);
-									registers[inst.A] = mmResult ?? ConcatOp(lhs, rhs, inst);
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
+									var result = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.Concat, metatableMode, context);
+									if (result == null)
+									{
+										// In Lua, only strings and numbers can be concatenated;
+										// numbers are converted to strings automatically.
+										if (lhs.Type != LuaType.String && lhs.Type != LuaType.Number)
+											throw RuntimeError($"Attempt to concatenate a '{lhs.TypeName}' value.", frame.Function, pc);
+										if (rhs.Type != LuaType.String && rhs.Type != LuaType.Number)
+											throw RuntimeError($"Attempt to concatenate a '{rhs.TypeName}' value.", frame.Function, pc);
+
+										lhs.TryToString(out var sa);
+										rhs.TryToString(out var sb);
+										result = new LuaString(sa + sb);
+									}
+									registers[inst.A] = result;
 									pc++;
 									break;
 								}
 
 							case OpCode.UNM:
 								{
-									var operand = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var mmResult = await TryUnaryMetamethodAsync(operand, LuaMetatableEvent.Unm, metatableMode, context);
-									registers[inst.A] = mmResult ?? UnmOp(operand, inst);
+									var operand = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var result = await TryUnaryMetamethodAsync(operand, LuaMetatableEvent.Unm, metatableMode, context);
+									if (result == null)
+									{
+										if (!operand.TryToNumber(out var value))
+											throw RuntimeError($"Attempt to perform arithmetic on a '{operand.TypeName}' value.", frame.Function, pc);
+										result = new LuaNumber(-value);
+									}
+									registers[inst.A] = result;
 									pc++;
 									break;
 								}
 
 							case OpCode.NOT:
 								{
-									registers[inst.A] = NotOp(
-										GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB)));
+									registers[inst.A] = LuaBoolean.FromBoolean(
+										!GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc).ToBoolean());
 									pc++;
 									break;
 								}
 
 							case OpCode.LEN:
 								{
-									var operand = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var mmResult = await TryUnaryMetamethodAsync(operand, LuaMetatableEvent.Len, metatableMode, context);
-									registers[inst.A] = mmResult ?? LenOp(operand, inst);
+									var operand = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var result = await TryUnaryMetamethodAsync(operand, LuaMetatableEvent.Len, metatableMode, context);
+									if (result == null)
+									{
+										switch (operand.Type)
+										{
+											case LuaType.String:
+												operand.TryToString(out var s);
+												result = new LuaNumber(s!.Length);
+												break;
+											case LuaType.Table:
+												var table = (LuaTable)operand;
+												result = new LuaNumber(table.Length);
+												break;
+											default:
+												throw RuntimeError($"Attempt to get length of a '{operand.TypeName}' value.", frame.Function, pc);
+										}
+									}
+									registers[inst.A] = result;
 									pc++;
 									break;
 								}
 
 							case OpCode.NE:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									// NE: try __eq metamethod, then negate.
 									var mmResult = await TryComparisonMetamethodAsync(lhs, rhs, LuaMetatableEvent.Eq, metatableMode, context);
 									if (mmResult.HasValue)
 										registers[inst.A] = LuaBoolean.FromBoolean(!mmResult.Value);
 									else
-										registers[inst.A] = CompareOp(lhs, rhs, CompareOpKind.Ne, inst);
+										registers[inst.A] = CompareOp(lhs, rhs, CompareOpKind.Ne, inst, frame, pc);
 									pc++;
 									break;
 								}
 
-
 							case OpCode.BAND:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.BAnd, metatableMode, context);
-									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.And, inst);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.And, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.BOR:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.BOr, metatableMode, context);
-									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Or, inst);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Or, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.BXOR:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.BXor, metatableMode, context);
-									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Xor, inst);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Xor, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.SHL:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.ShL, metatableMode, context);
-									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Shl, inst);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Shl, inst, frame, pc);
 									pc++;
 									break;
 								}
 
 							case OpCode.SHR:
 								{
-									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB));
-									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC));
+									var lhs = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
+									var rhs = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var mmResult = TryBinaryMetamethod(lhs, rhs, LuaMetatableEvent.ShR, metatableMode, context);
-									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Shr, inst);
+									registers[inst.A] = mmResult ?? BitwiseOp(lhs, rhs, BitwiseOpKind.Shr, inst, frame, pc);
 									pc++;
 									break;
 								}
-
 
 							case OpCode.TRY:
 								{
@@ -733,7 +777,7 @@ namespace AsyncLua.Interpreting
 							case OpCode.THROW:
 								{
 									var exValue = registers[inst.A];
-									throw new LuaRuntimeException(exValue.ToString());
+									throw RuntimeError(exValue.ToString(), frame.Function, pc);
 								}
 
 							case OpCode.CALL:
@@ -784,7 +828,7 @@ namespace AsyncLua.Interpreting
 										{
 											// Push a new call frame for bytecode execution.
 											if (callStack.Count >= maxStackSize)
-												throw new LuaRuntimeException("Call stack overflow.");
+												throw RuntimeError("Call stack overflow.", frame.Function, pc - 1);
 
 											callStack.Push(frame);
 											var newFrame = new CallStackFrame(
@@ -831,7 +875,7 @@ namespace AsyncLua.Interpreting
 										}
 										else
 										{
-										// ── Synchronous C# callback function ──
+											// ── Synchronous C# callback function ──
 											LuaTuple results;
 											if (async)
 												results = await luaFunc.InvokeAsync(context, args);
@@ -862,7 +906,7 @@ namespace AsyncLua.Interpreting
 										break;
 									}
 
-							// ── Not a function — try __call metamethod ──
+									// ── Not a function — try __call metamethod ──
 									var mode = context.Settings.MetatableMode;
 									var call = GetMetamethod(func, LuaMetatableEvent.Call, mode);
 									if (call.Type != LuaType.Nil && call is LuaFunction callFunc)
@@ -900,7 +944,7 @@ namespace AsyncLua.Interpreting
 									}
 									else
 									{
-										throw new LuaRuntimeException("CALL: operand A must be a function or have __call metamethod.");
+										throw RuntimeError("CALL: operand A must be a function or have __call metamethod.", frame.Function, pc - 1);
 									}
 
 									break;
@@ -968,7 +1012,7 @@ namespace AsyncLua.Interpreting
 									var start = registers[inst.A];
 									var step = registers[inst.A + 2];
 									if (!start.TryToNumber(out var s) || !step.TryToNumber(out var st))
-										throw new LuaRuntimeException("FORPREP: operands must be numbers.");
+										throw RuntimeError("FORPREP: operands must be numbers.", frame.Function, pc);
 
 									registers[inst.A] = new LuaNumber(s - st);
 									pc += GetSignedOffset(inst);
@@ -983,7 +1027,7 @@ namespace AsyncLua.Interpreting
 									var step = registers[inst.A + 2];
 
 									if (!counter.TryToNumber(out var c) || !limit.TryToNumber(out var l) || !step.TryToNumber(out var st))
-										throw new LuaRuntimeException("FORLOOP: operands must be numbers.");
+										throw RuntimeError("FORLOOP: operands must be numbers.", frame.Function, pc);
 
 									c += st;
 									registers[inst.A] = new LuaNumber(c);
@@ -1009,7 +1053,7 @@ namespace AsyncLua.Interpreting
 									// R[A+1] (state) is NOT updated — it remains as set by the initialiser
 									// (e.g. pairs/ipairs), following standard Lua semantics.
 									var tforFunc = registers[inst.A] as LuaFunction
-										?? throw new LuaRuntimeException("TFORCALL: operand A must be a function.");
+										?? throw RuntimeError("TFORCALL: operand A must be a function.", frame.Function, pc);
 
 									var tforArgs = new LuaValue[] { registers[inst.A + 1], registers[inst.A + 2] };
 
@@ -1083,7 +1127,7 @@ namespace AsyncLua.Interpreting
 								}
 
 							default:
-								throw new LuaRuntimeException($"Unknown opcode: {inst.Code}.");
+								throw RuntimeError($"Unknown opcode: {inst.Code}.", frame.Function, pc);
 						}
 					}
 					catch (LuaRuntimeException ex) when (tryHandlers.Count > 0)
@@ -1141,7 +1185,7 @@ namespace AsyncLua.Interpreting
 								tryHandlers.Pop();
 
 							if (handler.CatchVarReg.HasValue)
-								registers[handler.CatchVarReg.Value] = new LuaString(ex.Message);
+								registers[handler.CatchVarReg.Value] = new LuaString(ex.OriginalMessage);
 							pc = handler.CatchPC;
 						}
 						else
@@ -1162,6 +1206,44 @@ namespace AsyncLua.Interpreting
 					LuaMonitor.Exit(obj);
 				}
 			}
+		}
+
+		// ── Error helpers ───────────────────────────────────────────────
+
+		/// <summary>
+		/// Creates a <see cref="LuaRuntimeException"/> with source position information
+		/// from the current instruction pointer, if available.
+		/// </summary>
+		/// <param name="message">The error message.</param>
+		/// <param name="function">The function prototype being executed.</param>
+		/// <param name="pc">The current program counter (instruction index).</param>
+		/// <returns>A new <see cref="LuaRuntimeException"/> with position information if available.</returns>
+		private static LuaRuntimeException RuntimeError(string message, FunctionPrototype function, int pc)
+		{
+			var positions = function.Positions;
+			if (positions != null && pc >= 0 && pc < positions.Length)
+			{
+				var pos = positions[pc];
+				if (pos.IsValid)
+					return new LuaRuntimeException(message, pos);
+			}
+			return new LuaRuntimeException(message);
+		}
+
+		/// <summary>
+		/// Creates a <see cref="LuaRuntimeException"/> with source position information
+		/// from the current instruction pointer and an inner exception, if available.
+		/// </summary>
+		private static LuaRuntimeException RuntimeError(string message, FunctionPrototype function, int pc, Exception inner)
+		{
+			var positions = function.Positions;
+			if (positions != null && pc >= 0 && pc < positions.Length)
+			{
+				var pos = positions[pc];
+				if (pos.IsValid)
+					return new LuaRuntimeException(message, pos, inner);
+			}
+			return new LuaRuntimeException(message, inner);
 		}
 
 		// ── Metamethod helpers ─────────────────────────────────────────
@@ -1375,18 +1457,19 @@ namespace AsyncLua.Interpreting
 		/// reads from the constant pool; otherwise reads from the register file.
 		/// </summary>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		private static LuaValue GetRK(LuaValue[] registers, LuaValue[] constants, ushort value, bool isConstant)
+		private static LuaValue GetRK(in LuaValue[] registers, in LuaValue[] constants, in ushort value,
+			in bool isConstant, in CallStackFrame frame, in int pc)
 		{
 			if (isConstant)
 			{
 				if (value >= constants.Length)
-					throw new LuaRuntimeException($"GetRK: constant index {value} out of range (constants length={constants.Length})");
+					throw RuntimeError($"GetRK: constant index {value} out of range (constants length={constants.Length})", frame.Function, pc);
 				return constants[value];
 			}
 			else
 			{
 				if (value >= registers.Length)
-					throw new LuaRuntimeException($"GetRK: register index {value} out of range (registers length={registers.Length})");
+					throw RuntimeError($"GetRK: register index {value} out of range (constants length={constants.Length})", frame.Function, pc);
 				return registers[value];
 			}
 		}
@@ -1407,12 +1490,11 @@ namespace AsyncLua.Interpreting
 
 		private enum ArithOpKind { Add, Sub, Mul, Div, IDiv, Pow, Mod }
 
-		private static LuaValue ArithOp(LuaValue lhs, LuaValue rhs, ArithOpKind kind, Instruction inst)
+		private static LuaValue ArithOp(LuaValue lhs, LuaValue rhs, ArithOpKind kind, Instruction inst, CallStackFrame frame, int pc)
 		{
 			if (!lhs.TryToNumber(out var a) || !rhs.TryToNumber(out var b))
 			{
-				throw new LuaRuntimeException(
-					$"Attempt to perform arithmetic on a non-number value (instruction {inst.Code}).");
+				throw RuntimeError($"Attempt to perform arithmetic on a non-number value (instruction {inst.Code}).", frame.Function, pc - 1);
 			}
 
 			double result = kind switch
@@ -1423,9 +1505,10 @@ namespace AsyncLua.Interpreting
 				ArithOpKind.Div => a / b,
 				ArithOpKind.IDiv => Math.Floor(a / b),
 				ArithOpKind.Pow => Math.Pow(a, b),
-				ArithOpKind.Mod => Modulo(a, b),
-				_ => throw new LuaRuntimeException($"Unknown arithmetic operation: {kind}.")
+				ArithOpKind.Mod => b != 0 ? a - Math.Floor(a / b) * b : throw RuntimeError("Attempt to perform modulo with zero divisor.", frame.Function, pc - 1),
+				_ => throw RuntimeError($"Unknown arithmetic operation: {kind}.", frame.Function, pc - 1)
 			};
+			
 
 			return new LuaNumber(result);
 		}
@@ -1434,180 +1517,99 @@ namespace AsyncLua.Interpreting
 
 		private enum CompareOpKind { Eq, Lt, Le, Gt, Ge, Ne }
 
-		private static LuaValue CompareOp(LuaValue lhs, LuaValue rhs, CompareOpKind kind, Instruction inst)
+		private static LuaValue CompareOp(in LuaValue lhs, in LuaValue rhs, in CompareOpKind kind,
+			in Instruction inst, in CallStackFrame frame, in int pc)
 		{
-			bool result = kind switch
+			switch (kind)
 			{
-				CompareOpKind.Eq => CompareEqual(lhs, rhs),
-				CompareOpKind.Lt => CompareLessThan(lhs, rhs),
-				CompareOpKind.Le => CompareLessOrEqual(lhs, rhs),
-				CompareOpKind.Gt => CompareGreaterThan(lhs, rhs),
-				CompareOpKind.Ge => CompareGreaterOrEqual(lhs, rhs),
-				CompareOpKind.Ne => !CompareEqual(lhs, rhs),
-				_ => throw new LuaRuntimeException($"Unknown comparison operation: {kind}.")
-			};
+				case CompareOpKind.Eq:
+					// Lua equality: values of different types are never equal (except numbers and strings
+					// that convert, but in standard Lua, "1" == 1 is false).
+					if (lhs.Type != rhs.Type || !lhs.Equals(rhs))
+						return LuaBoolean.False;
+					return LuaBoolean.True;
 
-			return LuaBoolean.FromBoolean(result);
-		}
+				case CompareOpKind.Ne:
 
-		private static bool CompareEqual(LuaValue lhs, LuaValue rhs)
-		{
-			// Lua equality: values of different types are never equal (except numbers and strings
-			// that convert, but in standard Lua, "1" == 1 is false).
-			if (lhs.Type != rhs.Type)
-				return false;
+					if (lhs.Type == rhs.Type && lhs.Equals(rhs))
+						return LuaBoolean.False;
+					return LuaBoolean.True;
 
-			return lhs.Equals(rhs);
-		}
+				case CompareOpKind.Lt:
 
-		private static bool CompareLessThan(LuaValue lhs, LuaValue rhs)
-		{
-			// Lua less-than: both must be numbers or both must be strings.
-			if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
-			{
-				lhs.TryToNumber(out var a);
-				rhs.TryToNumber(out var b);
-				return a < b;
-			}
+					if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
+					{
+						lhs.TryToNumber(out var a);
+						rhs.TryToNumber(out var b);
+						return LuaBoolean.FromBoolean(a < b);
+					}
 
-			if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
-			{
-				lhs.TryToString(out var sa);
-				rhs.TryToString(out var sb);
-				return string.CompareOrdinal(sa, sb) < 0;
-			}
+					if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
+					{
+						lhs.TryToString(out var sa);
+						rhs.TryToString(out var sb);
+						return LuaBoolean.FromBoolean(string.CompareOrdinal(sa, sb) < 0);
+					}
 
-			throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<'.");
-		}
+					throw RuntimeError($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<'.", frame.Function, pc);
 
-		private static bool CompareGreaterOrEqual(LuaValue lhs, LuaValue rhs)
-		{
-			// Lua less-or-equal: same types as less-than.
-			if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
-			{
-				lhs.TryToNumber(out var a);
-				rhs.TryToNumber(out var b);
-				return a >= b;
-			}
+				case CompareOpKind.Le:
 
-			if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
-			{
-				lhs.TryToString(out var sa);
-				rhs.TryToString(out var sb);
-				return string.CompareOrdinal(sa, sb) >= 0;
-			}
+					if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
+					{
+						lhs.TryToNumber(out var a);
+						rhs.TryToNumber(out var b);
+						return LuaBoolean.FromBoolean(a <= b);
+					}
 
-			throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>='.");
-		}
+					if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
+					{
+						lhs.TryToString(out var sa);
+						rhs.TryToString(out var sb);
+						return LuaBoolean.FromBoolean(string.CompareOrdinal(sa, sb) <= 0);
+					}
 
-		private static bool CompareGreaterThan(LuaValue lhs, LuaValue rhs)
-		{
-			// Lua less-than: both must be numbers or both must be strings.
-			if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
-			{
-				lhs.TryToNumber(out var a);
-				rhs.TryToNumber(out var b);
-				return a > b;
-			}
+					throw RuntimeError($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<='.", frame.Function, pc);
 
-			if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
-			{
-				lhs.TryToString(out var sa);
-				rhs.TryToString(out var sb);
-				return string.CompareOrdinal(sa, sb) > 0;
-			}
+				case CompareOpKind.Gt:
 
-			throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>'.");
-		}
+					if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
+					{
+						lhs.TryToNumber(out var a);
+						rhs.TryToNumber(out var b);
+						return LuaBoolean.FromBoolean(a > b);
+					}
 
-		private static bool CompareLessOrEqual(LuaValue lhs, LuaValue rhs)
-		{
-			// Lua less-or-equal: same types as less-than.
-			if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
-			{
-				lhs.TryToNumber(out var a);
-				rhs.TryToNumber(out var b);
-				return a <= b;
-			}
+					if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
+					{
+						lhs.TryToString(out var sa);
+						rhs.TryToString(out var sb);
+						return LuaBoolean.FromBoolean(string.CompareOrdinal(sa, sb) > 0);
+					}
 
-			if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
-			{
-				lhs.TryToString(out var sa);
-				rhs.TryToString(out var sb);
-				return string.CompareOrdinal(sa, sb) <= 0;
-			}
+					throw RuntimeError($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>'.", frame.Function, pc);
 
-			throw new LuaRuntimeException($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<='.");
-		}
+				case CompareOpKind.Ge:
 
-		// ── Modulo (floor semantics per Lua 5.3+) ───────────────────────
+					if (lhs.Type == LuaType.Number && rhs.Type == LuaType.Number)
+					{
+						lhs.TryToNumber(out var a);
+						rhs.TryToNumber(out var b);
+						return LuaBoolean.FromBoolean(a >= b);
+					}
 
-		/// <summary>
-		/// Computes floor-modulo: <c>a - floor(a / b) * b</c>.
-		/// </summary>
-		private static double Modulo(double a, double b)
-		{
-			if (b == 0.0)
-				throw new LuaRuntimeException("Attempt to perform modulo by zero.");
-			return a - Math.Floor(a / b) * b;
-		}
+					if (lhs.Type == LuaType.String && rhs.Type == LuaType.String)
+					{
+						lhs.TryToString(out var sa);
+						rhs.TryToString(out var sb);
+						return LuaBoolean.FromBoolean(string.CompareOrdinal(sa, sb) >= 0);
+					}
 
-		// ── String concatenation ────────────────────────────────────────
+					throw RuntimeError($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>='.", frame.Function, pc);
 
-		/// <summary>
-		/// Concatenates two Lua values as strings (<c>..</c> operator).
-		/// Both operands are converted to their string representation.
-		/// </summary>
-		private static LuaString ConcatOp(LuaValue lhs, LuaValue rhs, Instruction inst)
-		{
-			// In Lua, only strings and numbers can be concatenated;
-			// numbers are converted to strings automatically.
-			if (lhs.Type != LuaType.String && lhs.Type != LuaType.Number)
-				throw new LuaRuntimeException($"Attempt to concatenate a '{lhs.TypeName}' value.");
-			if (rhs.Type != LuaType.String && rhs.Type != LuaType.Number)
-				throw new LuaRuntimeException($"Attempt to concatenate a '{rhs.TypeName}' value.");
-
-			lhs.TryToString(out var sa);
-			rhs.TryToString(out var sb);
-			return new LuaString(sa + sb);
-		}
-
-		// ── Unary operators ─────────────────────────────────────────────
-
-		/// <summary>
-		/// Unary minus (<c>-x</c>).
-		/// </summary>
-		private static LuaValue UnmOp(LuaValue operand, Instruction inst)
-		{
-			if (!operand.TryToNumber(out var value))
-				throw new LuaRuntimeException($"Attempt to perform arithmetic on a '{operand.TypeName}' value.");
-			return new LuaNumber(-value);
-		}
-
-		/// <summary>
-		/// Logical negation (<c>not x</c>).
-		/// </summary>
-		private static LuaBoolean NotOp(LuaValue operand)
-		{
-			return LuaBoolean.FromBoolean(!operand.ToBoolean());
-		}
-
-		/// <summary>
-		/// Length operator (<c>#x</c>).
-		/// </summary>
-		private static LuaValue LenOp(LuaValue operand, Instruction inst)
-		{
-			switch (operand.Type)
-			{
-				case LuaType.String:
-					operand.TryToString(out var s);
-					return new LuaNumber(s!.Length);
-				case LuaType.Table:
-					var table = (LuaTable)operand;
-					return new LuaNumber(table.Length);
 				default:
-					throw new LuaRuntimeException(
-						$"Attempt to get length of a '{operand.TypeName}' value.");
+
+					throw RuntimeError($"Unknown comparison operation: {kind}.", frame.Function, pc);
 			}
 		}
 
@@ -1619,11 +1621,11 @@ namespace AsyncLua.Interpreting
 		/// Performs a bitwise operation on two Lua values.
 		/// Both operands must be convertible to integers (Lua 5.3+ semantics).
 		/// </summary>
-		private static LuaValue BitwiseOp(LuaValue lhs, LuaValue rhs, BitwiseOpKind kind, Instruction inst)
+		private static LuaValue BitwiseOp(in LuaValue lhs, in LuaValue rhs, in BitwiseOpKind kind,
+			in Instruction inst, in CallStackFrame frame, in int pc)
 		{
 			if (!TryToInteger(lhs, out var a) || !TryToInteger(rhs, out var b))
-				throw new LuaRuntimeException(
-					$"Attempt to perform bitwise operation on non-integer values.");
+				throw RuntimeError($"Attempt to perform bitwise operation on non-integer values.", frame.Function, pc);
 
 			long result = kind switch
 			{
@@ -1632,7 +1634,7 @@ namespace AsyncLua.Interpreting
 				BitwiseOpKind.Xor => a ^ b,
 				BitwiseOpKind.Shl => a << (int)b,
 				BitwiseOpKind.Shr => a >> (int)b,
-				_ => throw new LuaRuntimeException($"Unknown bitwise operation: {kind}.")
+				_ => throw RuntimeError($"Unknown bitwise operation: {kind}.", frame.Function, pc)
 			};
 
 			return new LuaNumber(result);
@@ -1665,7 +1667,6 @@ namespace AsyncLua.Interpreting
 			/// </summary>
 			public bool Used;
 		}
-
 
 		/// <summary>
 		/// Attempts to convert a <see cref="LuaValue"/> to a 64-bit signed integer
