@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
@@ -14,18 +15,9 @@ namespace AsyncLua.Values
 	/// Internally, metamethods are stored in a fixed-size array indexed by <see cref="LuaMetatableEvent"/>,
 	/// providing O(1) access without dictionary overhead. Unset events default to <see cref="LuaNil.Instance"/>.
 	/// </para>
-	/// <para>
-	/// This class is <b>not thread-safe</b> for writes. The owning <c>LuaState</c> (or the caller)
-	/// is responsible for synchronisation when mutating metatables across threads.
-	/// </para>
 	/// </remarks>
 	public sealed class LuaMetatable : IEnumerable<KeyValuePair<LuaMetatableEvent, LuaValue>>
 	{
-		/// <summary>
-		/// Total number of defined metamethod events.
-		/// </summary>
-		internal const int EventCount = (int)LuaMetatableEvent.Close + 1;
-
 		/// <summary>
 		/// Reverse lookup table mapping <see cref="LuaMetatableEvent"/> values to their string names.
 		/// Initialised first because <see cref="EventNameLookup"/> depends on it.
@@ -35,7 +27,7 @@ namespace AsyncLua.Values
 		/// <summary>
 		/// Lookup table mapping event-name strings to their <see cref="LuaMetatableEvent"/> values.
 		/// </summary>
-		private static readonly Dictionary<string, LuaMetatableEvent> EventNameLookup = BuildEventNameLookup();
+		private static readonly ConcurrentDictionary<string, LuaMetatableEvent> EventNameLookup = BuildEventNameLookup();
 
 		private readonly LuaValue[] _handlers;
 
@@ -44,7 +36,7 @@ namespace AsyncLua.Values
 		/// </summary>
 		public LuaMetatable()
 		{
-			_handlers = new LuaValue[EventCount];
+			_handlers = new LuaValue[EventNames.Length];
 			for (int i = 0; i < _handlers.Length; i++)
 				_handlers[i] = LuaNil.Instance;
 		}
@@ -58,8 +50,8 @@ namespace AsyncLua.Values
 			if (other is null)
 				throw new ArgumentNullException(nameof(other));
 
-			_handlers = new LuaValue[EventCount];
-			Array.Copy(other._handlers, _handlers, EventCount);
+			_handlers = new LuaValue[EventNames.Length];
+			Array.Copy(other._handlers, _handlers, EventNames.Length);
 		}
 
 		/// <summary>
@@ -88,6 +80,25 @@ namespace AsyncLua.Values
 			}
 
 			return mt;
+		}
+
+		/// <summary>
+		/// Converts this metatable to a Lua table, with string keys corresponding
+		/// to the metamethod names and values corresponding to the handlers.
+		/// </summary>
+		/// <returns>A new <see cref="LuaTable"/> populated with the metatable's handlers.</returns>
+		public LuaTable ToTable()
+		{
+			var table = new LuaTable();
+
+			for (int i = 0; i < _handlers.Length; i++)
+			{
+				var handler = _handlers[i];
+				if (handler != LuaNil.Instance)
+					table.Set(EventNames[i], handler);
+			}
+
+			return table;
 		}
 
 		/// <summary>
@@ -221,8 +232,6 @@ namespace AsyncLua.Values
 
 		IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-		#region ── Enumerator ────────────────────────────────────────────
-
 		/// <summary>
 		/// A struct enumerator that iterates over all non-nil metamethod events in a metatable.
 		/// </summary>
@@ -245,7 +254,7 @@ namespace AsyncLua.Values
 			/// <inheritdoc />
 			public bool MoveNext()
 			{
-				while (++_index < EventCount)
+				while (++_index < EventNames.Length)
 				{
 					if (_handlers[_index].Type != LuaType.Nil)
 					{
@@ -278,14 +287,10 @@ namespace AsyncLua.Values
 			public void Dispose() => _inner.Dispose();
 		}
 
-		#endregion
-
-		#region ── Static initialisation ──────────────────────────────────
-
-		private static Dictionary<string, LuaMetatableEvent> BuildEventNameLookup()
+		private static ConcurrentDictionary<string, LuaMetatableEvent> BuildEventNameLookup()
 		{
-			var dict = new Dictionary<string, LuaMetatableEvent>(EventCount);
-			for (int i = 0; i < EventCount; i++)
+			var dict = new ConcurrentDictionary<string, LuaMetatableEvent>();
+			for (int i = 0; i < EventNames.Length; i++)
 			{
 				dict[EventNames[i]] = (LuaMetatableEvent)i;
 			}
@@ -294,40 +299,12 @@ namespace AsyncLua.Values
 
 		private static string[] BuildEventNames()
 		{
-			return new string[EventCount]
+			var result = new List<string>();
+			foreach (LuaMetatableEvent evt in Enum.GetValues(typeof(LuaMetatableEvent)))
 			{
-				"__add",      // Add
-                "__sub",      // Sub
-                "__mul",      // Mul
-                "__div",      // Div
-                "__mod",      // Mod
-                "__pow",      // Pow
-                "__unm",      // Unm
-                "__idiv",     // IDiv
-                "__band",     // BAnd
-                "__bor",      // BOr
-                "__bxor",     // BXor
-                "__bnot",     // BNot
-                "__shl",      // ShL
-                "__shr",      // ShR
-                "__concat",   // Concat
-                "__len",      // Len
-                "__eq",       // Eq
-                "__lt",       // Lt
-                "__le",       // Le
-                "__index",    // Index
-                "__newindex", // NewIndex
-                "__call",     // Call
-                "__tostring", // ToString
-                "__gc",       // GC
-                "__mode",     // Mode
-                "__metatable",// MetaTable
-                "__name",     // Name
-                "__pairs",    // Pairs
-                "__close",    // Close
-            };
+				result.Add($"__{evt.ToString().ToLowerInvariant()}");
+			}
+			return result.ToArray();
 		}
-
-		#endregion
 	}
 }

@@ -82,10 +82,18 @@ namespace AsyncLua.Values
 		/// <summary>The call (<c>f(...)</c>) metamethod: <c>__call</c>.</summary>
 		Call,
 
+		// AsyncLua extensions
+
+		/// <summary>The <c>await</c> operator metamethod: <c>__await</c>.</summary>
+		Await,
+
 		// Introspection
 
 		/// <summary>The <c>tostring()</c> metamethod: <c>__tostring</c>.</summary>
 		ToString,
+
+		/// <summary>The <c>tonumber()</c> metamethod: <c>__tonumber</c>.</summary>
+		ToNumber,
 
 		/// <summary>The garbage-collector finalizer metamethod: <c>__gc</c>.</summary>
 		GC,
@@ -103,6 +111,6 @@ namespace AsyncLua.Values
 		Pairs,
 
 		/// <summary>The to-be-closed variable metamethod: <c>__close</c>.</summary>
-		Close,
+		Close
 	}
 }

@@ -61,13 +61,12 @@ namespace AsyncLua.Values
 		// ── Indexer ──────────────────────────────────────────────────────
 
 		/// <summary>
-		/// Gets or sets the value associated with the specified key.
-		/// Setting a <c>nil</c> value removes the key (equivalent to <see cref="Remove"/>).
+		/// Gets or sets the value at the specified integer index (1-based).
+		/// This is a convenience wrapper around <see cref="this[LuaValue]"/>.
 		/// </summary>
-		/// <param name="key">The key. Must not be <c>nil</c>.</param>
-		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if the key is absent.</returns>
-		/// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is <see langword="null"/>.</exception>
-		public LuaValue this[LuaValue key]
+		/// <param name="index">The 1-based integer index.</param>
+		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if the index is absent.</returns>
+		public LuaValue this[string key]
 		{
 			get => Get(key);
 			set => Set(key, value);
@@ -85,7 +84,34 @@ namespace AsyncLua.Values
 			set => Set(index, value);
 		}
 
+		/// <summary>
+		/// Gets or sets the value associated with the specified key.
+		/// Setting a <c>nil</c> value removes the key (equivalent to <see cref="Remove"/>).
+		/// </summary>
+		/// <param name="key">The key. Must not be <c>nil</c>.</param>
+		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if the key is absent.</returns>
+		/// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is <see langword="null"/>.</exception>
+		public LuaValue this[LuaValue key]
+		{
+			get => Get(key);
+			set => Set(key, value);
+		}
+
 		// ── Getters / Setters ────────────────────────────────────────────
+
+		/// <summary>
+		/// Retrieves the value by the specified key, or <c>nil</c> if absent.
+		/// </summary>
+		/// <param name="key">The key to look up.</param>
+		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if not found.</returns>
+		public LuaValue Get(string key) => Get((LuaString)key);
+
+		/// <summary>
+		/// Retrieves the value at the specified integer index (1-based), or <c>nil</c> if absent.
+		/// </summary>
+		/// <param name="index">The 1-based integer index.</param>
+		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if not found.</returns>
+		public LuaValue Get(int index) => Get((LuaNumber)(double)index);
 
 		/// <summary>
 		/// Retrieves the value for the specified key, or <c>nil</c> if absent.
@@ -104,11 +130,18 @@ namespace AsyncLua.Values
 		}
 
 		/// <summary>
-		/// Retrieves the value at the specified integer index (1-based), or <c>nil</c> if absent.
+		/// Stores a value at the specified string key.
+		/// </summary>
+		/// <param name="key">The string key.</param>
+		/// <param name="value">The value to store, or <c>nil</c> to remove.</param>
+		public void Set(string key, LuaValue value) => Set((LuaString)key, value);
+
+		/// <summary>
+		/// Stores a value at the specified integer index (1-based).
 		/// </summary>
 		/// <param name="index">The 1-based integer index.</param>
-		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if not found.</returns>
-		public LuaValue Get(int index) => Get((LuaNumber)(double)index);
+		/// <param name="value">The value to store, or <c>nil</c> to remove.</param>
+		public void Set(int index, LuaValue value) => Set((LuaNumber)(double)index, value);
 
 		/// <summary>
 		/// Stores a value under the specified key. Passing a <c>nil</c> value removes the key.
@@ -144,13 +177,6 @@ namespace AsyncLua.Values
 				_entries[key] = value;
 			}
 		}
-
-		/// <summary>
-		/// Stores a value at the specified integer index (1-based).
-		/// </summary>
-		/// <param name="index">The 1-based integer index.</param>
-		/// <param name="value">The value to store, or <c>nil</c> to remove.</param>
-		public void Set(int index, LuaValue value) => Set((LuaNumber)(double)index, value);
 
 		/// <summary>
 		/// Removes the entry for the specified key (equivalent to setting it to <c>nil</c>).

@@ -240,11 +240,10 @@ public class StringLibraryTests
 	}
 
 	[Fact]
-	public void Format_NoArgs_ReturnsEmpty()
+	public void Format_NoArgs_Throws()
 	{
 		var state = CreateState();
-		var result = state.Execute("return string.format()");
-		Assert.Equal("", Assert.IsType<LuaString>(result.First).Value);
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("return string.format()"));
 	}
 
 	[Fact]
@@ -253,5 +252,23 @@ public class StringLibraryTests
 		var state = CreateState();
 		var result = state.Execute("return string.format('%.2f', 3.14159)");
 		Assert.Equal("3.14", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	// ── Type metatables ────────────────────────────────────────────
+
+	[Fact]
+	public void TypeMetatables_Len_Throws()
+	{
+		var state = CreateState();
+		// This should throw because 'len' is not called as method, so 'len' will get empty args
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("return 'a b c'.len()"));
+	}
+
+	[Fact]
+	public void TypeMetatables_Len_MethodStyle()
+	{
+		var state = CreateState();
+		var result = state.Execute("return 'a b c':len()");
+		Assert.Equal(5.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 }

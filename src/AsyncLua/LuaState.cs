@@ -27,6 +27,7 @@ namespace AsyncLua
 
 		private readonly AsyncLuaParser _parser;
 		private readonly CompilerSettings _compilerSettings;
+		private readonly InterpreterSettings _interpreterSettings;
 
 		/// <summary>
 		/// Gets the global environment table (_G) for this Lua state.
@@ -46,6 +47,7 @@ namespace AsyncLua
 		{
 			_parser = _defaultParser;
 			_compilerSettings = new CompilerSettings();
+			_interpreterSettings = new InterpreterSettings();
 
 			Globals = new LuaTable();
 			// Standard Lua: _G references the global table itself.
@@ -56,10 +58,11 @@ namespace AsyncLua
 		/// Initialises a new instance of the <see cref="LuaState"/> class
 		/// with an empty global table and provided settings.
 		/// </summary>
-		public LuaState(AsyncLuaParser? parser, CompilerSettings? compilerSettings)
+		public LuaState(AsyncLuaParser? parser, CompilerSettings? compilerSettings, InterpreterSettings? interpreterSettings)
 		{
 			_parser = parser ?? _defaultParser;
 			_compilerSettings = compilerSettings ?? new CompilerSettings();
+			_interpreterSettings = interpreterSettings ?? new InterpreterSettings();
 
 			Globals = new LuaTable();
 			// Standard Lua: _G references the global table itself.
@@ -138,9 +141,9 @@ namespace AsyncLua
 		/// Optional interpreter settings to use. If <see langword="null"/>, defaults are used.
 		/// </param>
 		/// <returns>A new calling context.</returns>
-		public LuaCallingContext CreateContext(LuaTable? environment = null, Interpreting.InterpreterSettings? settings = null)
+		public LuaCallingContext CreateContext(LuaTable? environment = null, InterpreterSettings? settings = null)
 		{
-			return new LuaCallingContext(this, globals: environment ?? Globals, settings: settings);
+			return new LuaCallingContext(this, globals: environment ?? Globals, settings: settings ?? _interpreterSettings);
 		}
 
 		/// <summary>
@@ -158,7 +161,7 @@ namespace AsyncLua
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
-			var prototype = AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
 			return AsyncLuaInterpreter.Call(prototype, CreateContext());
 		}
 
@@ -180,7 +183,7 @@ namespace AsyncLua
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
-			var prototype = AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
 			return await AsyncLuaInterpreter.CallAsync(prototype, CreateContext());
 		}
 
@@ -199,7 +202,7 @@ namespace AsyncLua
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
-			var prototype = AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
 			return new CompiledLuaCode(CreateContext(), prototype);
 		}
 
@@ -216,7 +219,7 @@ namespace AsyncLua
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
-			var prototype = Compiling.AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			var prototype = Compiling.AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
 			return prototype.Disassemble();
 		}
 	}

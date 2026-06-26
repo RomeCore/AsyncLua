@@ -155,7 +155,6 @@ namespace AsyncLua.Interpreting
 								{
 									var key = GetRK(registers, constants, inst.C, inst.Flags.HasFlag(OpFlags.KC), frame, pc);
 									var table = registers[inst.B];
-									var mode = context.Settings.MetatableMode;
 
 									// Walk the __index chain to resolve the key.
 									var current = table;
@@ -174,14 +173,14 @@ namespace AsyncLua.Interpreting
 										}
 
 										// Key not found — try __index metamethod.
-										var index = GetMetamethod(context.State, current, LuaMetatableEvent.Index, mode);
+										var index = GetMetamethod(context.State, current, LuaMetatableEvent.Index, MetatableMode.Aggressive);
 										if (index.Type == LuaType.Nil)
 										{
-											// No __index — return nil (or error if not a table).
-											if (current is LuaTable)
+											// No __index — return nil (or error if not a table or userdata).
+											if (current is LuaTable or LuaUserData)
 												registers[inst.A] = LuaNil.Instance;
 											else
-												throw RuntimeError("GETTABLE: operand B must be a table.", frame.Function, pc);
+												throw RuntimeError($"GETTABLE: cannot index a '{current.TypeName}' value (must have __index metamethod).", frame.Function, pc);
 											pc++;
 											break;
 										}
@@ -233,7 +232,8 @@ namespace AsyncLua.Interpreting
 										}
 										else
 										{
-											var newIndex = GetMetamethod(context.State, table, LuaMetatableEvent.NewIndex, mode);
+											// Not a table — try __newindex in Aggressive mode, otherwise error.
+											var newIndex = GetMetamethod(context.State, table, LuaMetatableEvent.NewIndex, MetatableMode.Aggressive);
 											if (newIndex.Type != LuaType.Nil && newIndex is LuaFunction func)
 											{
 												if (async)
@@ -249,8 +249,7 @@ namespace AsyncLua.Interpreting
 									}
 									else
 									{
-										// Not a table — try __newindex in Aggressive mode, otherwise error.
-										var newIndex = GetMetamethod(context.State, table, LuaMetatableEvent.NewIndex, mode);
+										var newIndex = GetMetamethod(context.State, table, LuaMetatableEvent.NewIndex, MetatableMode.Aggressive);
 										if (newIndex.Type != LuaType.Nil && newIndex is LuaFunction func)
 										{
 											if (async)
@@ -260,7 +259,7 @@ namespace AsyncLua.Interpreting
 										}
 										else
 										{
-											throw RuntimeError("SETTABLE: operand A must be a table.", frame.Function, pc);
+											throw RuntimeError($"SETTABLE: cannot set a '{table.TypeName}' value (must have __newindex metamethod).", frame.Function, pc);
 										}
 									}
 
@@ -294,7 +293,6 @@ namespace AsyncLua.Interpreting
 									pc++;
 									break;
 								}
-
 
 							case OpCode.GETGLOBAL:
 								{
@@ -423,24 +421,47 @@ namespace AsyncLua.Interpreting
 							case OpCode.AWAIT:
 								{
 									if (!async)
-										throw RuntimeError("AWAIT is only supported in CallAsync, not Call.", frame.Function, pc);
-
-									var task = registers[inst.A] as LuaTask
-										?? throw RuntimeError("AWAIT: operand A must be a LuaTask.", frame.Function, pc);
+										throw RuntimeError("AWAIT is only supported in asyncronous contexts.", frame.Function, pc);
 
 									LuaTuple results;
-									try
+									var awaitable = registers[inst.A];
+
+									var awaitMm = GetMetamethod(context.State, awaitable, LuaMetatableEvent.Await, metatableMode);
+									if (awaitMm is LuaFunction awaitFunction)
 									{
-										results = await task;
+										try
+										{
+											results = await awaitFunction.InvokeAsync(context, awaitable);
+										}
+										catch (LuaRuntimeException)
+										{
+											throw; // Already a LuaRuntimeException — let it propagate to TRY handlers.
+										}
+										catch (Exception ex)
+										{
+											// Wrap non-Lua exceptions (e.g. from faulted tasks) so Lua try/catch can handle them.
+											throw RuntimeError(ex.Message, frame.Function, pc, ex);
+										}
+
 									}
-									catch (LuaRuntimeException)
+									else
 									{
-										throw; // Already a LuaRuntimeException — let it propagate to TRY handlers.
-									}
-									catch (Exception ex)
-									{
-										// Wrap non-Lua exceptions (e.g. from faulted tasks) so Lua try/catch can handle them.
-										throw RuntimeError(ex.Message, frame.Function, pc - 1, ex);
+										var task = awaitable as LuaTask
+											?? throw RuntimeError("AWAIT: operand A must be a LuaTask or have an __await metamethod.", frame.Function, pc);
+
+										try
+										{
+											results = await task;
+										}
+										catch (LuaRuntimeException)
+										{
+											throw; // Already a LuaRuntimeException — let it propagate to TRY handlers.
+										}
+										catch (Exception ex)
+										{
+											// Wrap non-Lua exceptions (e.g. from faulted tasks) so Lua try/catch can handle them.
+											throw RuntimeError(ex.Message, frame.Function, pc, ex);
+										}
 									}
 
 									// C = 0 means "accept all results" (Lua multiple-return convention).
@@ -1194,6 +1215,8 @@ namespace AsyncLua.Interpreting
 								}
 							}
 
+							// If restoredFrame is null, the handler belongs to the current frame
+							// (which is already active). No unwinding needed.
 							if (restoredFrame.HasValue)
 							{
 								frame = restoredFrame.Value;
@@ -1201,8 +1224,6 @@ namespace AsyncLua.Interpreting
 								constants = frame.Function.Constants;
 								instructions = frame.Function.Instructions;
 							}
-							// If restoredFrame is null, the handler belongs to the current frame
-							// (which is already active). No unwinding needed.
 
 							// Remove handlers that belonged to unwound frames (they are no longer valid).
 							while (tryHandlers.Count > 0 && tryHandlers.Peek().CallStackDepth > callStack.Count)

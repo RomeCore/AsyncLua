@@ -23,12 +23,21 @@ namespace AsyncLua.Libraries
 		protected override void PopulateTable(LuaState state, LuaTable table)
 		{
 			table.Set(new LuaString("len"), new LuaCallbackFunction(
-				(ctx, args) => new LuaTuple(new LuaNumber(args[0].ToString().Length)),
+				(ctx, args) =>
+				{
+					if (args.Length < 1)
+						throw new LuaRuntimeException("Expected at least one argument for string.len() function.");
+
+					return new LuaTuple(new LuaNumber(args[0].ToString().Length));
+				},
 				"string.len"));
 
 			table.Set(new LuaString("sub"), new LuaCallbackFunction(
 				(ctx, args) =>
 				{
+					if (args.Length < 1)
+						throw new LuaRuntimeException("Expected at least one argument for string.sub() function.");
+
 					var s = args[0].ToString();
 					var len = s.Length;
 
@@ -39,7 +48,7 @@ namespace AsyncLua.Libraries
 						: len;
 
 					if (start > endIdx || start > len || endIdx < 1)
-						return new LuaTuple(new LuaString(""));
+						return new LuaTuple(LuaString.Empty);
 
 					int count = endIdx - start + 1;
 					if (start < 1) { count += start - 1; start = 1; }
@@ -52,6 +61,9 @@ namespace AsyncLua.Libraries
 			table.Set(new LuaString("byte"), new LuaCallbackFunction(
 				(ctx, args) =>
 				{
+					if (args.Length < 1)
+						throw new LuaRuntimeException("Expected at least one argument for string.byte() function.");
+
 					var s = args[0].ToString();
 					var pos = args.Length > 1 ? (int)((LuaNumber)args[1]).Value : 1;
 					if (pos < 0) pos = s.Length + pos + 1;
@@ -69,16 +81,31 @@ namespace AsyncLua.Libraries
 				}, "string.char"));
 
 			table.Set(new LuaString("upper"), new LuaCallbackFunction(
-				(ctx, args) => new LuaTuple(new LuaString(args[0].ToString().ToUpperInvariant())),
+				(ctx, args) =>
+				{
+					if (args.Length < 1)
+						throw new LuaRuntimeException("Expected at least one argument for string.upper() function.");
+
+					return new LuaTuple(new LuaString(args[0].ToString().ToUpperInvariant()));
+				},
 				"string.upper"));
 
 			table.Set(new LuaString("lower"), new LuaCallbackFunction(
-				(ctx, args) => new LuaTuple(new LuaString(args[0].ToString().ToLowerInvariant())),
+				(ctx, args) =>
+				{
+					if (args.Length < 1)
+						throw new LuaRuntimeException("Expected at least one argument for string.lower() function.");
+
+					return new LuaTuple(new LuaString(args[0].ToString().ToLowerInvariant()));
+				},
 				"string.lower"));
 
 			table.Set(new LuaString("reverse"), new LuaCallbackFunction(
 				(ctx, args) =>
 				{
+					if (args.Length < 1)
+						throw new LuaRuntimeException("Expected at least one argument for string.reverse() function.");
+
 					var s = args[0].ToString();
 					var chars = s.ToCharArray();
 					Array.Reverse(chars);
@@ -88,6 +115,9 @@ namespace AsyncLua.Libraries
 			table.Set(new LuaString("rep"), new LuaCallbackFunction(
 				(ctx, args) =>
 				{
+					if (args.Length < 2)
+						throw new LuaRuntimeException("Expected at least two arguments for string.rep() function.");
+
 					var s = args[0].ToString();
 					var n = (int)((LuaNumber)args[1]).Value;
 					var sb = new StringBuilder(s.Length * n);
@@ -99,8 +129,8 @@ namespace AsyncLua.Libraries
 			table.Set(new LuaString("format"), new LuaCallbackFunction(
 				(ctx, args) =>
 				{
-					if (args.Length == 0)
-						return new LuaTuple(new LuaString(""));
+					if (args.Length < 1)
+						throw new LuaRuntimeException("Expected at least one argument for string.format() function.");
 
 					var format = args[0].ToString();
 					var fmtArgs = new object[args.Length - 1];
@@ -113,6 +143,11 @@ namespace AsyncLua.Libraries
 					}
 					return new LuaTuple(new LuaString(PrintfFormat(format, fmtArgs)));
 				}, "string.format"));
+
+			state.TypeMetatables[LuaType.String] = new LuaMetatable
+			{
+				[LuaMetatableEvent.Index] = table
+			};
 		}
 
 		/// <summary>

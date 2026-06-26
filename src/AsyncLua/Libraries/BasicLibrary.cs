@@ -21,8 +21,8 @@ namespace AsyncLua.Libraries
 		{
 			state.SetGlobal("print", new LuaCallbackFunction(Print, "print"));
 			state.SetGlobal("type", new LuaCallbackFunction(Type, "type"));
-			state.SetGlobal("tostring", new LuaCallbackFunction(ToString, "tostring"));
-			state.SetGlobal("tonumber", new LuaCallbackFunction(ToNumber, "tonumber"));
+			state.SetGlobal("tostring", new LuaCallbackFunction(ToString, "tostring", isAsync: false));
+			state.SetGlobal("tonumber", new LuaCallbackFunction(ToNumber, "tonumber", isAsync: false));
 			state.SetGlobal("is_async", new LuaCallbackFunction(IsAsync, "is_async"));
 			state.SetGlobal("error", new LuaCallbackFunction(Error, "error"));
 			state.SetGlobal("assert", new LuaCallbackFunction(Assert, "assert"));
@@ -34,6 +34,8 @@ namespace AsyncLua.Libraries
 			state.SetGlobal("pairs", new LuaCallbackFunction(Pairs, "pairs"));
 			state.SetGlobal("next", new LuaCallbackFunction(Next, "next"));
 			state.SetGlobal("select", new LuaCallbackFunction(Select, "select"));
+			state.SetGlobal("getmetatable", new LuaCallbackFunction(GetMetatable, "getmetatable"));
+			state.SetGlobal("setmetatable", new LuaCallbackFunction(SetMetatable, "setmetatable"));
 		}
 
 		private static LuaTuple Print(LuaCallingContext ctx, LuaValue[] args)
@@ -51,7 +53,7 @@ namespace AsyncLua.Libraries
 			return new LuaTuple(new LuaString(typeName));
 		}
 
-		private static LuaTuple ToString(LuaCallingContext ctx, LuaValue[] args)
+		private static async Task<LuaTuple> ToString(LuaCallingContext ctx, LuaValue[] args)
 		{
 			if (args.Length == 0)
 				return new LuaTuple(new LuaString("nil"));
@@ -64,17 +66,32 @@ namespace AsyncLua.Libraries
 			{
 				var handler = mt.Get(LuaMetatableEvent.ToString);
 				if (handler is LuaFunction func)
-					return func.Invoke(ctx, new[] { value });
+					return await func.InvokeAsync(ctx, new[] { value });
 			}
 
 			return new LuaTuple(new LuaString(value.ToString()));
 		}
 
-		private static LuaTuple ToNumber(LuaCallingContext ctx, LuaValue[] args)
+		private static async Task<LuaTuple> ToNumber(LuaCallingContext ctx, LuaValue[] args)
 		{
-			if (args.Length == 0 || !args[0].TryToNumber(out var n))
-				return new LuaTuple(LuaNil.Instance);
-			return new LuaTuple(new LuaNumber(n));
+			if (args.Length == 0)
+				throw new LuaRuntimeException("tonumber: expected at least 1 argument, got 0");
+
+			var value = args[0];
+
+			// Check for __tonumber metamethod.
+			var mt = value.Metatable;
+			if (mt != null && mt.HasEvent(LuaMetatableEvent.ToNumber))
+			{
+				var handler = mt.Get(LuaMetatableEvent.ToNumber);
+				if (handler is LuaFunction func)
+					return await func.InvokeAsync(ctx, new[] { value });
+			}
+
+			if (value.TryToNumber(out var number))
+				return new LuaTuple(new LuaNumber(number));
+
+			throw new LuaRuntimeException("tonumber: cannot convert to number");
 		}
 
 		private static LuaTuple IsAsync(LuaCallingContext ctx, LuaValue[] args)
@@ -244,6 +261,45 @@ namespace AsyncLua.Libraries
 			var results = new LuaValue[args.Length - startIndex];
 			Array.Copy(args, startIndex, results, 0, results.Length);
 			return new LuaTuple(results);
+		}
+
+		private static LuaTuple GetMetatable(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0)
+				throw new LuaRuntimeException("getmetatable: expected at least 1 argument, got 0");
+
+			var obj = args[0];
+			if (obj.Metatable != null)
+			{
+				if (obj.Metatable.HasEvent(LuaMetatableEvent.MetaTable))
+					return new LuaTuple(obj.Metatable[LuaMetatableEvent.MetaTable]);
+				return new LuaTuple(obj.Metatable.ToTable());
+			}
+
+			return new LuaTuple(LuaNil.Instance);
+		}
+
+		private static LuaTuple SetMetatable(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length < 2)
+				throw new LuaRuntimeException("getmetatable: expected at least 2 arguments, got 0");
+
+			var obj = args[0];
+			if (obj.Metatable != null)
+			{
+				if (obj.Metatable.HasEvent(LuaMetatableEvent.MetaTable))
+					throw new LuaRuntimeException("setmetatable: cannot change a protected metatable");
+				if (args[1] is LuaNil)
+				{
+					obj.Metatable = null;
+					return LuaTuple.Empty;
+				}
+				if (args[1] is not LuaTable table)
+					throw new LuaRuntimeException("setmetatable: expected second argument to be a table, got " + args[1].TypeName);
+				obj.Metatable = LuaMetatable.FromTable(table);
+			}
+
+			return LuaTuple.Empty;
 		}
 	}
 }
