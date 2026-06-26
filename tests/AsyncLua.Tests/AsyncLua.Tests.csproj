@@ -8,6 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="CoverageReport\**" />
+    <Compile Remove="TestResults\**" />
+    <EmbeddedResource Remove="CoverageReport\**" />
+    <EmbeddedResource Remove="TestResults\**" />
+    <None Remove="CoverageReport\**" />
+    <None Remove="TestResults\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />

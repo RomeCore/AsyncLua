@@ -120,7 +120,7 @@ public class LibrarySystemTests
 
 	private sealed class GlobalTestLibrary : LuaGlobalBaseLibrary
 	{
-		public override void Import(LuaState state)
+		protected override void PopulateTable(LuaState state, LuaTable table)
 		{
 			state.SetGlobal("myVersion", new LuaCallbackFunction(
 				(ctx, args) => new LuaTuple(new LuaString("1.0")), "myVersion"));

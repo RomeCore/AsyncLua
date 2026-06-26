@@ -7,22 +7,19 @@ using AsyncLua.Values;
 namespace AsyncLua.Libraries
 {
 	/// <summary>
-	/// Implements the standard Lua global functions: <c>print</c>, <c>type</c>,
+	/// Implements the standard Lua global functions with some extensions: <c>print</c>, <c>type</c>,
 	/// <c>tostring</c>, <c>tonumber</c>, <c>error</c>, <c>assert</c>, <c>ipairs</c>,
 	/// <c>pairs</c>, <c>next</c>, <c>select</c>.
 	/// </summary>
 	public sealed class BasicLibrary : LuaGlobalBaseLibrary
 	{
-		/// <summary>
-		/// Registers all basic library functions into the specified Lua state.
-		/// </summary>
-		/// <param name="state">The Lua state to import into.</param>
-		public override void Import(LuaState state)
+		protected override void PopulateTable(LuaState state, LuaTable table)
 		{
 			state.SetGlobal("print", new LuaCallbackFunction(Print, "print"));
 			state.SetGlobal("type", new LuaCallbackFunction(Type, "type"));
 			state.SetGlobal("tostring", new LuaCallbackFunction(ToString, "tostring", isAsync: false));
 			state.SetGlobal("tonumber", new LuaCallbackFunction(ToNumber, "tonumber", isAsync: false));
+			state.SetGlobal("delay", new LuaCallbackFunction(Delay, "delay"));
 			state.SetGlobal("run", new LuaCallbackFunction(Run, "run"));
 			state.SetGlobal("is_async", new LuaCallbackFunction(IsAsync, "is_async"));
 			state.SetGlobal("error", new LuaCallbackFunction(Error, "error"));
@@ -112,6 +109,15 @@ namespace AsyncLua.Libraries
 				return new LuaTuple(new LuaNumber(number));
 
 			throw new LuaRuntimeException("tonumber: cannot convert to number");
+		}
+
+		private static async Task<LuaTuple> Delay(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0 || !args[0].TryToNumber(out var delay))
+				throw new LuaRuntimeException("delay: expected a number as argument");
+
+			await Task.Delay((int)delay);
+			return LuaTuple.Empty;
 		}
 
 		private static Task<LuaTuple> Run(LuaCallingContext ctx, LuaValue[] args)

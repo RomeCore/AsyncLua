@@ -28,6 +28,9 @@ BenchmarkDotNet.Artifacts/
 **/[Tt]est[Rr]esult*.trx
 *.coverage
 
+## Coverage Reports (coverlet + ReportGenerator)
+**/[Cc]overage[Rr]eport*/
+
 ## Rider / JetBrains
 .idea/
 *.sln.iml

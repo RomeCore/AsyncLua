@@ -868,8 +868,11 @@ namespace AsyncLua.Parsing
 					};
 				});
 
-			builder.CreateRule("local_function_decl_statement")
-				.Keyword("local")
+			builder.CreateToken("varscope")
+				.KeywordChoice(("local", VariableScope.Local), ("global", VariableScope.Global));
+
+			builder.CreateRule("scoped_function_decl_statement")
+				.Token("varscope")
 				.Optional(b => b.Keyword("async"))
 				.Keyword("function")
 				.Token("identifier")
@@ -884,7 +887,7 @@ namespace AsyncLua.Parsing
 					{
 						Name = v.GetIntermediateValue<string>(3),
 						IsAsync = v.Children[1].Length > 0,
-						Scope = VariableScope.Local,
+						Scope = v.Children[0].GetValue<VariableScope>(),
 						Parameters = parameters.Where(p => !p.IsVarArg).ToArray(),
 						HasVarArg = parameters.Any(p => p.IsVarArg),
 						Body = v.GetValue<BlockNode>(5),
@@ -894,8 +897,8 @@ namespace AsyncLua.Parsing
 
 			// ── Local declaration ─────────────────────────────────────
 
-			builder.CreateRule("local_declaration_statement")
-				.Keyword("local")
+			builder.CreateRule("scoped_declaration_statement")
+				.Token("varscope")
 				.OneOrMoreSeparated(
 					b => b.Token("identifier"),
 					s => s.Literal(","))
@@ -916,7 +919,7 @@ namespace AsyncLua.Parsing
 
 					return new AssignmentNode
 					{
-						Scope = VariableScope.Local,
+						Scope = v.Children[0].GetValue<VariableScope>(),
 						Targets = vars.Select(n => (ExpressionNode)new IdentifierNode { Name = n }).ToArray(),
 						Values = values,
 						Position = CodePositionalInfo.From(v)
@@ -1072,8 +1075,8 @@ namespace AsyncLua.Parsing
 					b => b.Rule("repeat_statement"),
 					b => b.Rule("for_numeric_statement"),
 					b => b.Rule("for_in_statement"),
-					b => b.Rule("local_function_decl_statement"),
-					b => b.Rule("local_declaration_statement"),
+					b => b.Rule("scoped_function_decl_statement"),
+					b => b.Rule("scoped_declaration_statement"),
 					b => b.Rule("function_decl_statement"),
 					b => b.Rule("return_statement"),
 					b => b.Rule("break_statement"),

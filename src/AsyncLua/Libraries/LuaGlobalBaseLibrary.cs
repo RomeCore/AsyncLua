@@ -15,7 +15,7 @@ namespace AsyncLua.Libraries
 	/// <c>tonumber</c>, <c>error</c>, <c>assert</c>, <c>pcall</c>, <c>ipairs</c>, <c>pairs</c>.
 	/// </para>
 	/// </remarks>
-	public abstract class LuaGlobalBaseLibrary : LuaLibrary
+	public abstract class LuaGlobalBaseLibrary : LuaTableBaseLibrary
 	{
 		/// <summary>
 		/// Gets <see langword="null"/> — global libraries do not have a namespace prefix.

@@ -20,18 +20,9 @@ namespace AsyncLua.Libraries
 		/// <see cref="PopulateTable"/>, and assigns it to <c>_G[Namespace]</c>.
 		/// </summary>
 		/// <param name="state">The Lua state to import into.</param>
-		/// <exception cref="global::System.InvalidOperationException">
-		/// Thrown if <see cref="LuaLibrary.Namespace"/> is <see langword="null"/>.
-		/// Override <see cref="LuaGlobalBaseLibrary"/> instead for global-scope libraries.
-		/// </exception>
 		public sealed override void Import(LuaState state)
 		{
-			var ns = Namespace
-				?? throw new global::System.InvalidOperationException(
-					$"Table library '{GetType().Name}' has a null Namespace. " +
-					$"Use LuaGlobalLibrary for libraries without a namespace.");
-
-			var nsTable = state.Globals.ResolveNamespace(ns);
+			var nsTable = state.Globals.ResolveNamespace(Namespace);
 			PopulateTable(state, nsTable);
 		}
 

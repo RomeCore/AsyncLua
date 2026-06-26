@@ -148,6 +148,13 @@ namespace AsyncLua.Compiling
 			}
 		}
 
+		private VariableScope ResolveScope(VariableScope? scope)
+		{
+			if (scope.HasValue)
+				return scope.Value;
+			return _settings.IsLocalByDefault ? VariableScope.Local : VariableScope.Global;
+		}
+
 		// ── Assignment ──────────────────────────────────────────────────
 
 		private void CompileAssignment(AssignmentNode node)
@@ -165,7 +172,8 @@ namespace AsyncLua.Compiling
 				var target = node.Targets[i];
 				if (target is IdentifierNode ident)
 				{
-					if (node.Scope == VariableScope.Local || (node.Scope == null && _settings.IsLocalByDefault))
+					var scope = ResolveScope(node.Scope);
+					if (scope == VariableScope.Local)
 					{
 						_locals[ident.Name] = reg;
 					}
@@ -217,6 +225,8 @@ namespace AsyncLua.Compiling
 			int effectiveValueCount = isMultiReturnCall ? targetCount : valueCount;
 			int copyCount = Math.Min(effectiveValueCount, targetCount);
 			int[] valueRegs = new int[targetCount];
+
+			// For targets beyond the expanded results, nil-fill is handled below.
 			for (int i = 0; i < copyCount; i++)
 			{
 				int expectedReg = baseReg + i;
@@ -236,8 +246,6 @@ namespace AsyncLua.Compiling
 					valueRegs[i] = expectedReg;
 				}
 			}
-			// For targets beyond the expanded results, nil-fill is handled below.
-
 			// Ensure _nextRegister covers all target slots (in case valueCount < targetCount).
 			if (_nextRegister < baseReg + targetCount)
 				_nextRegister = baseReg + targetCount;
@@ -263,13 +271,7 @@ namespace AsyncLua.Compiling
 				var target = node.Targets[i];
 				if (target is IdentifierNode ident)
 				{
-					bool isLocal = node.Scope == VariableScope.Local ||
-						(node.Scope == null && _settings.IsLocalByDefault);
-					if (isLocal)
-					{
-						// Already registered above — nothing to do.
-					}
-					else
+					if (ResolveScope(node.Scope) != VariableScope.Local)
 					{
 						// global x = ... or reassignment: find existing local first.
 						if (_locals.TryGetValue(ident.Name, out int localReg))
@@ -781,15 +783,12 @@ namespace AsyncLua.Compiling
 			}
 
 			// Determine whether this function should be assigned to a local variable.
-			// Explicit "local function" or when IsLocalByDefault is set.
-			bool explicitLocal = node.Scope == VariableScope.Local;
-			bool implicitLocal = node.Scope == null && _settings.IsLocalByDefault;
 			// If the name already exists as a local (e.g. forward-declared "local f"),
 			// the function must be assigned to that local, not a global.
-			bool hasExistingLocal = _locals.ContainsKey(node.Name);
+			bool isLocal = ResolveScope(node.Scope) == VariableScope.Local || _locals.ContainsKey(node.Name);
 
 			int closureReg;
-			if (explicitLocal || implicitLocal || hasExistingLocal)
+			if (isLocal)
 			{
 				// Reuse an existing local register if present; otherwise allocate a new one.
 				if (_locals.TryGetValue(node.Name, out int existingReg))
@@ -838,7 +837,7 @@ namespace AsyncLua.Compiling
 			int protoIndex = _innerPrototypes.Count;
 			_innerPrototypes.Add(innerProto);
 
-			if (explicitLocal || implicitLocal || hasExistingLocal)
+			if (isLocal)
 			{
 				// Use the pre-determined register (either reused or pre-allocated).
 				EmitCLOSURE(closureReg, (ushort)protoIndex);
