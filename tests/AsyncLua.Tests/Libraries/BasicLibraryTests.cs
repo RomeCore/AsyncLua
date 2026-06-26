@@ -147,27 +147,24 @@ public class BasicLibraryTests
 	}
 
 	[Fact]
-	public void ToNumber_InvalidString_ReturnsNil()
+	public void ToNumber_InvalidString_Throws()
 	{
 		var state = CreateState();
-		var result = state.Execute("return tonumber('not_a_number')");
-		Assert.IsType<LuaNil>(result.First);
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("return tonumber('not_a_number')"));
 	}
 
 	[Fact]
-	public void ToNumber_Nil_ReturnsNil()
+	public void ToNumber_Nil_Throws()
 	{
 		var state = CreateState();
-		var result = state.Execute("return tonumber(nil)");
-		Assert.IsType<LuaNil>(result.First);
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("return tonumber(nil)"));
 	}
 
 	[Fact]
-	public void ToNumber_NoArgs_ReturnsNil()
+	public void ToNumber_NoArgs_Throws()
 	{
 		var state = CreateState();
-		var result = state.Execute("return tonumber()");
-		Assert.IsType<LuaNil>(result.First);
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("return tonumber()"));
 	}
 
 	// ── is_async() ─────────────────────────────────────────────────
@@ -371,7 +368,7 @@ public class BasicLibraryTests
 			local t = { 1, 2, nil, 4 }
 			local count = 0
 			for i, v in ipairs(t) do
-				count = count + 1
+				count += 1
 			end
 			return count
 		");

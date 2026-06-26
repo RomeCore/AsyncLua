@@ -479,6 +479,14 @@ namespace AsyncLua.Interpreting
 									for (int i = storeCount; i < wantResults; i++)
 										registers[inst.A + i] = LuaNil.Instance;
 
+									// If zero results and C=0 ("accept all"), write nil into R[A]
+									// so that subsequent code / RETURN B=0 sees a clean value.
+									if (storeCount == 0 && results.Count == 0 && inst.C == 0)
+									{
+										registers[inst.A] = LuaNil.Instance;
+										storeCount = 1;
+									}
+
 									// Track highest written register for RETURN B=0.
 									int top = inst.A + Math.Max(storeCount, wantResults);
 									if (top > frame.RegisterTop)
@@ -864,6 +872,7 @@ namespace AsyncLua.Interpreting
 										{
 											var csharpTask = luaFunc.InvokeAsync(context, args);
 											registers[inst.A] = LuaTask.FromTask(csharpTask);
+											frame.RegisterTop = Math.Max(frame.RegisterTop, inst.A + 1);
 											// pc already advanced; execution continues without blocking.
 											break;
 										}
@@ -1316,22 +1325,31 @@ namespace AsyncLua.Interpreting
 			// In Aggressive mode, any type with a metatable can yield a metamethod.
 			if (mode == MetatableMode.Aggressive)
 			{
+				// 1. Check the individual metatable (per-object).
 				var mt = value.Metatable;
-				if (mt == null && state.TypeMetatables.TryGetValue(value.Type, out var _mt))
-					mt = _mt;
 				if (mt != null && mt.HasEvent(evt))
 					return mt.Get(evt);
+
+				// 2. Fall back to the type-level metatable (shared for the Lua type).
+				if (state.TypeMetatables.TryGetValue(value.Type, out var typeMt)
+					&& typeMt.HasEvent(evt))
+					return typeMt.Get(evt);
+
 				return LuaNil.Instance;
 			}
 
 			// Default (Relaxed) mode: only tables (and userdata) are checked.
 			if (value.Type == LuaType.Table || value.Type == LuaType.UserData)
 			{
+				// 1. Individual metatable first.
 				var mt = value.Metatable;
-				if (mt == null && state.TypeMetatables.TryGetValue(value.Type, out var _mt))
-					mt = _mt;
 				if (mt != null && mt.HasEvent(evt))
 					return mt.Get(evt);
+
+				// 2. Type metatable as fallback.
+				if (state.TypeMetatables.TryGetValue(value.Type, out var typeMt)
+					&& typeMt.HasEvent(evt))
+					return typeMt.Get(evt);
 			}
 
 			return LuaNil.Instance;

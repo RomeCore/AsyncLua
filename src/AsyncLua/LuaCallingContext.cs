@@ -23,16 +23,21 @@ namespace AsyncLua
 		public LuaState State { get; }
 
 		/// <summary>
+		/// Gets the interpreter settings for this execution context.
+		/// </summary>
+		public InterpreterSettings Settings { get; }
+
+		/// <summary>
 		/// Gets the global environment table for the current call.
 		/// This is typically <see cref="LuaState.Globals"/> but may be overridden
 		/// per-closure (_ENV).
 		/// </summary>
-		public LuaTable Globals { get; }
+		public LuaTable Globals { get; set; }
 
 		/// <summary>
-		/// Gets the interpreter settings for this execution context.
+		/// Gets or sets a callback function that will be invoked when <c>print(...)</c> is called.
 		/// </summary>
-		public InterpreterSettings Settings { get; }
+		public Action<string>? Print { get; set; }
 
 		/// <summary>
 		/// Initialises a new instance of the <see cref="LuaCallingContext"/> class.
@@ -51,8 +56,8 @@ namespace AsyncLua
 			InterpreterSettings? settings = null)
 		{
 			State = state ?? throw new ArgumentNullException(nameof(state));
-			Globals = globals ?? state.Globals;
 			Settings = settings ?? new InterpreterSettings();
+			Globals = globals ?? state.Globals;
 		}
 	}
 }

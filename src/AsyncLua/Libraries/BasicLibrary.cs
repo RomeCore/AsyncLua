@@ -23,6 +23,7 @@ namespace AsyncLua.Libraries
 			state.SetGlobal("type", new LuaCallbackFunction(Type, "type"));
 			state.SetGlobal("tostring", new LuaCallbackFunction(ToString, "tostring", isAsync: false));
 			state.SetGlobal("tonumber", new LuaCallbackFunction(ToNumber, "tonumber", isAsync: false));
+			state.SetGlobal("run", new LuaCallbackFunction(Run, "run"));
 			state.SetGlobal("is_async", new LuaCallbackFunction(IsAsync, "is_async"));
 			state.SetGlobal("error", new LuaCallbackFunction(Error, "error"));
 			state.SetGlobal("assert", new LuaCallbackFunction(Assert, "assert"));
@@ -40,10 +41,12 @@ namespace AsyncLua.Libraries
 
 		private static LuaTuple Print(LuaCallingContext ctx, LuaValue[] args)
 		{
+			if (ctx.Print is null)
+				return LuaTuple.Empty;
 			var parts = new string[args.Length];
 			for (int i = 0; i < args.Length; i++)
 				parts[i] = args[i].ToString();
-			System.Diagnostics.Debug.WriteLine(string.Join("\t", parts));
+			ctx.Print?.Invoke(string.Join("\t", parts));
 			return LuaTuple.Empty;
 		}
 
@@ -69,6 +72,14 @@ namespace AsyncLua.Libraries
 					return await func.InvokeAsync(ctx, new[] { value });
 			}
 
+			if (ctx.State.TypeMetatables.TryGetValue(value.Type, out var typeMtToString)
+				&& typeMtToString.HasEvent(LuaMetatableEvent.ToString))
+			{
+				var handler = typeMtToString.Get(LuaMetatableEvent.ToString);
+				if (handler is LuaFunction func)
+					return await func.InvokeAsync(ctx, new[] { value });
+			}
+
 			return new LuaTuple(new LuaString(value.ToString()));
 		}
 
@@ -79,7 +90,7 @@ namespace AsyncLua.Libraries
 
 			var value = args[0];
 
-			// Check for __tonumber metamethod.
+			// Check for __tonumber metamethod (individual metatable first).
 			var mt = value.Metatable;
 			if (mt != null && mt.HasEvent(LuaMetatableEvent.ToNumber))
 			{
@@ -88,10 +99,30 @@ namespace AsyncLua.Libraries
 					return await func.InvokeAsync(ctx, new[] { value });
 			}
 
+			// Then type metatable.
+			if (ctx.State.TypeMetatables.TryGetValue(value.Type, out var typeMtToNumber)
+				&& typeMtToNumber.HasEvent(LuaMetatableEvent.ToNumber))
+			{
+				var handler = typeMtToNumber.Get(LuaMetatableEvent.ToNumber);
+				if (handler is LuaFunction func)
+					return await func.InvokeAsync(ctx, new[] { value });
+			}
+
 			if (value.TryToNumber(out var number))
 				return new LuaTuple(new LuaNumber(number));
 
 			throw new LuaRuntimeException("tonumber: cannot convert to number");
+		}
+
+		private static Task<LuaTuple> Run(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0 || args[0] is not LuaFunction func)
+				throw new LuaRuntimeException("run: expected a function as argument");
+
+			return Task.Run(async () =>
+			{
+				return await func.InvokeAsync(ctx, args.Skip(1).ToArray());
+			});
 		}
 
 		private static LuaTuple IsAsync(LuaCallingContext ctx, LuaValue[] args)
@@ -174,7 +205,30 @@ namespace AsyncLua.Libraries
 
 		private static LuaTuple Pairs(LuaCallingContext ctx, LuaValue[] args)
 		{
-			if (args.Length == 0 || args[0] is not LuaTable t)
+			if (args.Length == 0)
+				return new LuaTuple(LuaNil.Instance);
+
+			var target = args[0];
+
+			// Check for __pairs metamethod (Lua 5.2+ semantics).
+			var mt = target.Metatable;
+			if (mt != null && mt.HasEvent(LuaMetatableEvent.Pairs))
+			{
+				var handler = mt.Get(LuaMetatableEvent.Pairs);
+				if (handler is LuaFunction func)
+					return func.Invoke(ctx, new[] { target });
+			}
+
+			// Type metatables (per-type shared metatables).
+			if (mt == null && ctx.State.TypeMetatables.TryGetValue(target.Type, out var typeMt)
+				&& typeMt.HasEvent(LuaMetatableEvent.Pairs))
+			{
+				var handler = typeMt.Get(LuaMetatableEvent.Pairs);
+				if (handler is LuaFunction func)
+					return func.Invoke(ctx, new[] { target });
+			}
+
+			if (target is not LuaTable t)
 				return new LuaTuple(LuaNil.Instance);
 
 			var nextFunc = new LuaCallbackFunction(

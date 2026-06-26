@@ -243,21 +243,21 @@ public class LockAndAwaitInterpreterTests
 	}
 
 	[Fact]
-	public async Task Await_EmptyResult_StoresNothing()
+	public async Task Await_EmptyResult_ReturnsNil()
 	{
-		// Await a task with 0 results.
+		// Await a task with 0 results → R[0] should be nil (standard Lua semantics:
+		// zero return values = nil in single-value context).
 		var emptyTask = LuaTask.FromResult(); // empty
 		var proto = MakeProto(new[]
 		{
 			new Instruction(OpCode.MOVE, a: 0, b: 0, c: 0, flags: OpFlags.KB),
 			new Instruction(OpCode.AWAIT, a: 0, b: 0, c: 0, flags: OpFlags.None),
-            // R[0] is unchanged (still the task object itself, since no results were stored).
-            new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
+			new Instruction(OpCode.RETURN, a: 0, b: 1, c: 0, flags: OpFlags.None),
 		}, maxRegSize: 1, constants: new LuaValue[] { emptyTask });
 
 		var result = await AsyncLuaInterpreter.CallAsync(proto, Context());
-		// R[0] is still the task because no results were copied.
-		_ = Assert.IsType<LuaTask>(result.First);
+		// Awaiting an empty task yields nil, not the task object.
+		Assert.IsType<LuaNil>(result.First);
 	}
 
 	[Fact]

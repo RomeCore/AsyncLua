@@ -100,6 +100,13 @@ namespace AsyncLua.Values
 		// ── Getters / Setters ────────────────────────────────────────────
 
 		/// <summary>
+		/// Retrieves the value by the specified object key, or <c>default</c> if absent.
+		/// </summary>
+		/// <param name="key">The key to look up.</param>
+		/// <returns>The stored value, or <see langword="default"/> if not found.</returns>
+		public LuaValue Get(object key) => Get(LuaValueConverter.ToLuaValue(key));
+
+		/// <summary>
 		/// Retrieves the value by the specified key, or <c>nil</c> if absent.
 		/// </summary>
 		/// <param name="key">The key to look up.</param>
@@ -128,6 +135,41 @@ namespace AsyncLua.Values
 
 			return LuaNil.Instance;
 		}
+
+		/// <summary>
+		/// Retrieves the value by the specified CLR object key, or <c>default</c> if absent.
+		/// </summary>
+		/// <param name="key">The key to look up, will be converted to <see cref="LuaValue"/> the best possible way.</param>
+		/// <returns>The stored value, or <see langword="default"/> if not found.</returns>
+		public T? Get<T>(object key) => LuaValueConverter.ToClrObject<T>(Get(LuaValueConverter.ToLuaValue(key)));
+
+		/// <summary>
+		/// Retrieves the value by the specified string key, or <c>default</c> if absent.
+		/// </summary>
+		/// <param name="key">The key to look up.</param>
+		/// <returns>The stored value, or <see langword="default"/> if not found.</returns>
+		public T? Get<T>(string key) => LuaValueConverter.ToClrObject<T>(Get((LuaString)key));
+
+		/// <summary>
+		/// Retrieves the value at the specified integer index (1-based), or <c>default</c> if absent.
+		/// </summary>
+		/// <param name="key">The key to look up.</param>
+		/// <returns>The stored value, or <see langword="default"/> if not found.</returns>
+		public T? Get<T>(int index) => LuaValueConverter.ToClrObject<T>(Get((LuaNumber)index));
+
+		/// <summary>
+		/// Retrieves the value for the specified key, or <c>default</c> if absent.
+		/// </summary>
+		/// <param name="key">The key to look up.</param>
+		/// <returns>The stored value, or <see langword="default"/> if not found.</returns>
+		public T? Get<T>(LuaValue value) => LuaValueConverter.ToClrObject<T>(Get(value));
+
+		/// <summary>
+		/// Stores a value at the specified CLR object key. Passing a <c>null</c> value removes the key.
+		/// </summary>
+		/// <param name="key">The CLR object key, will be converted to <see cref="LuaValue"/> the best possible way.</param>
+		/// <param name="value">The value to store, or <c>null</c> to remove.</param>
+		public void Set<T>(object key, LuaValue value) => Set(LuaValueConverter.ToLuaValue(key), value);
 
 		/// <summary>
 		/// Stores a value at the specified string key.
@@ -179,6 +221,78 @@ namespace AsyncLua.Values
 		}
 
 		/// <summary>
+		/// Stores a value at the specified CLR object key. Passing a <c>null</c> value removes the key.
+		/// </summary>
+		/// <param name="key">The CLR object key.</param>
+		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
+		public void Set<T>(object key, object value) => Set(LuaValueConverter.ToLuaValue(key), LuaValueConverter.ToLuaValue(value));
+
+		/// <summary>
+		/// Stores a value at the specified string key. Passing a <c>null</c> value removes the key.
+		/// </summary>
+		/// <param name="key">The string key.</param>
+		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
+		public void Set<T>(string key, object value) => Set((LuaString)key, LuaValueConverter.ToLuaValue(value));
+
+		/// <summary>
+		/// Stores a value at the specified integer index (1-based). Passing a <c>null</c> value removes the key.
+		/// </summary>
+		/// <param name="index">The 1-based integer index.</param>
+		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
+		public void Set<T>(int index, object value) => Set((LuaNumber)index, LuaValueConverter.ToLuaValue(value));
+
+		/// <summary>
+		/// Stores a value under the specified key. Passing a <c>null</c> value removes the key.
+		/// </summary>
+		/// <param name="key">The key. Must not be <c>nil</c>.</param>
+		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
+		public void Set<T>(LuaValue key, object value) => Set(key, LuaValueConverter.ToLuaValue(value));
+
+		/// <summary>
+		/// Appends a value to the table, as if it were an array. The new index will be one greater than the current length.
+		/// </summary>
+		/// <param name="value">The value to append, will be converted to <see cref="LuaValue"/> the best possible way.</param>
+		public void Append(object value)
+		{
+			Append(LuaValueConverter.ToLuaValue(value));
+		}
+
+		/// <summary>
+		/// Appends a value to the table, as if it were an array. The new index will be one greater than the current length.
+		/// </summary>
+		/// <param name="value">The value to append.</param>
+		public void Append(LuaValue value)
+		{
+			var length = Length;
+			_entries[(LuaNumber)(length + 1)] = value;
+			if (!_entries.ContainsKey((LuaNumber)(length + 2)))
+				_cachedLength = length + 1;
+			else
+				_cachedLength = null;
+		}
+
+		/// <summary>
+		/// Removes the entry at the specified CLR object key.
+		/// </summary>
+		/// <param name="key">The CLR object key.</param>
+		/// <returns><see langword="true"/> if the key was present; otherwise, <see langword="false"/>.</returns>
+		public bool Remove(object key) => Remove(LuaValueConverter.ToLuaValue(key));
+
+		/// <summary>
+		/// Removes the entry at the specified string key.
+		/// </summary>
+		/// <param name="key">The string key.</param>
+		/// <returns><see langword="true"/> if the key was present; otherwise, <see langword="false"/>.</returns>
+		public bool Remove(string key) => Remove((LuaString)key);
+
+		/// <summary>
+		/// Removes the entry at the specified integer index.
+		/// </summary>
+		/// <param name="index">The 1-based integer index.</param>
+		/// <returns><see langword="true"/> if the index was present; otherwise, <see langword="false"/>.</returns>
+		public bool Remove(int index) => Remove((LuaNumber)index);
+
+		/// <summary>
 		/// Removes the entry for the specified key (equivalent to setting it to <c>nil</c>).
 		/// </summary>
 		/// <param name="key">The key to remove. Must not be <c>nil</c>.</param>
@@ -189,23 +303,6 @@ namespace AsyncLua.Values
 			ValidateKey(key);
 			_cachedLength = null;
 			return _entries.TryRemove(key, out _);
-		}
-
-		/// <summary>
-		/// Removes the entry at the specified integer index.
-		/// </summary>
-		/// <param name="index">The 1-based integer index.</param>
-		/// <returns><see langword="true"/> if the index was present; otherwise, <see langword="false"/>.</returns>
-		public bool Remove(int index) => Remove((LuaNumber)(double)index);
-
-		public void Append(LuaValue value)
-		{
-			var length = Length;
-			_entries[(LuaNumber)(length + 1)] = value;
-			if (!_entries.ContainsKey((LuaNumber)(length + 2)))
-				_cachedLength = length + 1;
-			else
-				_cachedLength = null;
 		}
 
 		/// <summary>

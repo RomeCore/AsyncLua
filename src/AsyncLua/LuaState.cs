@@ -40,6 +40,17 @@ namespace AsyncLua
 		public ConcurrentDictionary<LuaType, LuaMetatable> TypeMetatables { get; } = [];
 
 		/// <summary>
+		/// Gets or sets the default print function for all Lua states.
+		/// </summary>
+		public static Action<string>? DefaultPrint { get; set; } = Console.WriteLine;
+
+		/// <summary>
+		/// Gets or sets the print function for this Lua state.
+		/// If not set, defaults to the static <see cref="DefaultPrint"/> property.
+		/// </summary>
+		public Action<string>? Print { get; set; }
+
+		/// <summary>
 		/// Initialises a new instance of the <see cref="LuaState"/> class
 		/// with an empty global table.
 		/// </summary>
@@ -143,7 +154,11 @@ namespace AsyncLua
 		/// <returns>A new calling context.</returns>
 		public LuaCallingContext CreateContext(LuaTable? environment = null, InterpreterSettings? settings = null)
 		{
-			return new LuaCallingContext(this, globals: environment ?? Globals, settings: settings ?? _interpreterSettings);
+			var context = new LuaCallingContext(this, globals: environment ?? Globals, settings: settings ?? _interpreterSettings)
+			{
+				Print = Print ?? DefaultPrint
+			};
+			return context;
 		}
 
 		/// <summary>
@@ -151,18 +166,21 @@ namespace AsyncLua
 		/// </summary>
 		/// <param name="code">The Lua source code to execute.</param>
 		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+		/// <param name="editContext">Optional action to modify the calling context before execution.</param>
 		/// <returns>A <see cref="LuaTuple"/> containing all return values from the chunk.</returns>
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
-		public LuaTuple Execute(string code, string? sourceName = null)
+		public LuaTuple Execute(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null)
 		{
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
 			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
-			return AsyncLuaInterpreter.Call(prototype, CreateContext());
+			var context = CreateContext();
+			editContext?.Invoke(context);
+			return AsyncLuaInterpreter.Call(prototype, context);
 		}
 
 		/// <summary>
@@ -171,20 +189,23 @@ namespace AsyncLua
 		/// </summary>
 		/// <param name="code">The Lua source code to execute.</param>
 		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+		/// <param name="editContext">Optional action to modify the calling context before execution.</param>
 		/// <returns>
 		/// A task that resolves to a <see cref="LuaTuple"/> containing all return values from the chunk.
 		/// </returns>
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
-		public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null)
+		public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null)
 		{
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
 			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
-			return await AsyncLuaInterpreter.CallAsync(prototype, CreateContext());
+			var context = CreateContext();
+			editContext?.Invoke(context);
+			return AsyncLuaInterpreter.Call(prototype, context);
 		}
 
 		/// <summary>
@@ -192,18 +213,21 @@ namespace AsyncLua
 		/// </summary>
 		/// <param name="code">The Lua source code to compile.</param>
 		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+		/// <param name="editContext">Optional action to modify the calling context.</param>
 		/// <returns>The compiled Lua code.</returns>
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
-		public CompiledLuaCode Compile(string code, string? sourceName = null)
+		public CompiledLuaCode Compile(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null)
 		{
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
 			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
-			return new CompiledLuaCode(CreateContext(), prototype);
+			var context = CreateContext();
+			editContext?.Invoke(context);
+			return new CompiledLuaCode(context, prototype);
 		}
 
 		/// <summary>
