@@ -2,10 +2,11 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using Xunit.Abstractions;
 
 namespace AsyncLua.Tests.Integration
 {
-	public class CodeExamplesTests
+	public class CodeExamplesTests(ITestOutputHelper output)
 	{
 		[Fact]
 		public async Task ReadmeExample()
@@ -31,11 +32,8 @@ namespace AsyncLua.Tests.Integration
 				print(result)
 			");
 
-			var sw = new Stopwatch();
-			sw.Start();
-
 			// Critical sections and try-catch with throw
-			await state.ExecuteAsync(@"
+			var compiled = state.Compile(@"
 				local mutex = {}
 	
 				async function doWork1()
@@ -51,13 +49,13 @@ namespace AsyncLua.Tests.Integration
 	
 				async function doWork2()
 					lock mutex do
-						await delay(100)
+						await delay(150)
 						return 'data successfully received'
 					end
 				end
 
 				async function doWork3()
-					await delay(350)
+					await delay(250)
 					return 'another data successfully received'
 				end
 
@@ -66,6 +64,11 @@ namespace AsyncLua.Tests.Integration
 				print(r1, r2, r3)
 			");
 
+			var sw = new Stopwatch();
+			sw.Start();
+
+			await compiled.ExecuteAsync();
+
 			sw.Stop();
 			var elapsed = sw.ElapsedMilliseconds;
 
@@ -73,7 +76,9 @@ namespace AsyncLua.Tests.Integration
 			Assert.Contains("data received", prints);
 			Assert.Contains("some error occured\tdata successfully received\tanother data successfully received", prints);
 			Assert.True(elapsed > 350);
-			Assert.True(elapsed < 650);
+			Assert.True(elapsed < 600);
+
+			output.WriteLine($"Elapsed time: {elapsed} ms for executing critical sections and try-catch with throw.");
 		}
 	}
 }

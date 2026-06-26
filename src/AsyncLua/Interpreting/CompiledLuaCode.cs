@@ -22,6 +22,16 @@ namespace AsyncLua.Interpreting
 		public FunctionPrototype Prototype { get; }
 
 		/// <summary>
+		/// The global table that will be used during execution.
+		/// Shortcut for <c>Context.Globals</c>.
+		/// </summary>
+		public LuaTable Globals
+		{
+			get => Context.Globals;
+			set => Context.Globals = value;
+		}
+
+		/// <summary>
 		/// Initializes a new instance of the <see cref="CompiledLuaCode"/> class.
 		/// </summary>
 		/// <param name="context">The calling context in which the compiled code will execute.</param>

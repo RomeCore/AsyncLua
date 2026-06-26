@@ -1,7 +1,7 @@
 # AsyncLua
 
-[![Build](https://github.com/your-org/AsyncLua/actions/workflows/build.yml/badge.svg)](https://github.com/your-org/AsyncLua/actions/workflows/build.yml)
-[![Tests](https://github.com/your-org/AsyncLua/actions/workflows/tests.yml/badge.svg)](https://github.com/your-org/AsyncLua/actions/workflows/tests.yml)
+[![Build](https://github.com/RomeCore/AsyncLua/actions/workflows/build.yml/badge.svg)](https://github.com/your-org/AsyncLua/actions/workflows/build.yml)
+[![Tests](https://github.com/RomeCore/AsyncLua/actions/workflows/tests.yml/badge.svg)](https://github.com/your-org/AsyncLua/actions/workflows/tests.yml)
 [![NuGet](https://img.shields.io/nuget/v/AsyncLua)](https://www.nuget.org/packages/AsyncLua)
 
 An extended Lua interpreter for C#, optimized for concurrency with **async/await** patterns.
@@ -24,10 +24,10 @@ using AsyncLua;
 var state = new LuaState()
     .LoadDefaultLibraries();
 
-// Synchronous execution
+// 1. Synchronous execution
 state.Execute("print('Hello from Lua!')");
 
-// Asynchronous execution with async/await
+// 2. Asynchronous execution with async/await
 await state.ExecuteAsync(@"
     async function fetchData()
         -- Simulate async I/O
@@ -39,8 +39,9 @@ await state.ExecuteAsync(@"
     print(result)
 ");
 
-// Critical sections and try-catch with throw
-await state.ExecuteAsync(@"
+// 3. Critical sections and try-catch with throw
+// You can compile code for later and repeated execution
+var compiled = state.Compile(@"
     local mutex = {}
     
     async function doWork1()
@@ -56,20 +57,23 @@ await state.ExecuteAsync(@"
     
     async function doWork2()
         lock mutex do
-            await delay(100)
+            await delay(150)
             return 'data successfully received'
         end
     end
 
     async function doWork3()
-        await delay(350)
+        await delay(250)
         return 'another data successfully received'
     end
 
     local t1, t2, t3 = doWork1(), doWork2(), doWork3()
-    local r1, r2, r3 = await t1, await t2, await t3
+    local r1, r2, r3 = await t1, await t2, await t3 -- will take at least 350 ms because of locks
     print(r1, r2, r3)
 ");
+
+// Then execute it!
+await compiled.ExecuteAsync();
 ```
 
 ## Projects
