@@ -196,7 +196,7 @@ namespace AsyncLua
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
-		public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null)
+		public Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null)
 		{
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
@@ -205,7 +205,7 @@ namespace AsyncLua
 			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
 			var context = CreateContext();
 			editContext?.Invoke(context);
-			return AsyncLuaInterpreter.Call(prototype, context);
+			return AsyncLuaInterpreter.CallAsync(prototype, context);
 		}
 
 		/// <summary>
