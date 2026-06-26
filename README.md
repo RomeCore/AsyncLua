@@ -61,9 +61,14 @@ await state.ExecuteAsync(@"
         end
     end
 
-    local t1, t2 = doWork1(), doWork2()
-    local r1, r2 = await t1, await t2
-    print(r1, r2)
+    async function doWork3()
+        await delay(350)
+        return 'another data successfully received'
+    end
+
+    local t1, t2, t3 = doWork1(), doWork2(), doWork3()
+    local r1, r2, r3 = await t1, await t2, await t3
+    print(r1, r2, r3)
 ");
 ```
 
