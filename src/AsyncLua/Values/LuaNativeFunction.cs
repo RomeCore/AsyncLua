@@ -66,7 +66,7 @@ namespace AsyncLua.Values
 		}
 
 		/// <inheritdoc />
-		public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, LuaValue[] args)
+		public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, params LuaValue[] args)
 		{
 			var effectiveContext = Environment is not null
 				? new LuaCallingContext(context.State, Environment)

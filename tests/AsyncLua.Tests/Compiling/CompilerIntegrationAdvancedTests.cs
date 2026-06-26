@@ -36,7 +36,7 @@ public class CompilerIntegrationAdvancedTests
 	public void ForIn_IteratesOverPairs()
 	{
 		var state = new LuaState();
-		state.Register("pairs", new LuaCallbackFunction((ctx, args) =>
+		state.SetGlobal("pairs", new LuaCallbackFunction((ctx, args) =>
 		{
 			var t = (LuaTable)args[0];
 			var keys = new List<LuaValue>();
@@ -79,7 +79,7 @@ public class CompilerIntegrationAdvancedTests
 	public void ForIn_EmptyTable_DoesNotExecute()
 	{
 		var state = new LuaState();
-		state.Register("pairs", new LuaCallbackFunction((ctx, args) =>
+		state.SetGlobal("pairs", new LuaCallbackFunction((ctx, args) =>
 		{
 			var t = (LuaTable)args[0];
 			var iterator = new LuaCallbackFunction((ctx2, innerArgs) =>
@@ -109,7 +109,7 @@ public class CompilerIntegrationAdvancedTests
 	public void MethodCall_WithSelf_Works()
 	{
 		var state = new LuaState();
-		state.Register("Increment", new LuaCallbackFunction((ctx, args) =>
+		state.SetGlobal("Increment", new LuaCallbackFunction((ctx, args) =>
 		{
 			var self = (LuaTable)args[0];
 			var delta = ((LuaNumber)args[1]).Value;
@@ -317,7 +317,7 @@ public class CompilerIntegrationAdvancedTests
 	public void Vararg_Function_CollectsExtraArgs()
 	{
 		var state = new LuaState();
-		state.Register("sum", new LuaCallbackFunction((ctx, args) =>
+		state.SetGlobal("sum", new LuaCallbackFunction((ctx, args) =>
 		{
 			double total = 0;
 			foreach (var a in args)
@@ -612,7 +612,7 @@ public class CompilerIntegrationAdvancedTests
 	public async Task Await_InLoop_SumsAsyncResults()
 	{
 		var state = new LuaState();
-		state.Register("asyncValue", new LuaCallbackFunction(
+		state.SetGlobal("asyncValue", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(1);
@@ -655,7 +655,7 @@ public class CompilerIntegrationAdvancedTests
 	public async Task NestedLock_WithAwait_ReleasesCorrectly()
 	{
 		var state = new LuaState();
-		state.Register("delayed", new LuaCallbackFunction(
+		state.SetGlobal("delayed", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(10);

@@ -21,7 +21,7 @@ public class AdvancedIntegrationTests
 	private static void RegisterStandardLibrary(LuaState state)
 	{
 		// print(...)
-		state.Register("print", new LuaCallbackFunction(
+		state.SetGlobal("print", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				var parts = new string[args.Length];
@@ -32,7 +32,7 @@ public class AdvancedIntegrationTests
 			}, "print"));
 
 		// type(value)
-		state.Register("type", new LuaCallbackFunction(
+		state.SetGlobal("type", new LuaCallbackFunction(
 			(ctx, args) =>
 				args.Length == 0
 					? new LuaTuple(new LuaString("nil"))
@@ -40,7 +40,7 @@ public class AdvancedIntegrationTests
 			"type"));
 
 		// tostring(value)
-		state.Register("tostring", new LuaCallbackFunction(
+		state.SetGlobal("tostring", new LuaCallbackFunction(
 			(ctx, args) =>
 				args.Length == 0
 					? new LuaTuple(new LuaString("nil"))
@@ -48,7 +48,7 @@ public class AdvancedIntegrationTests
 			"tostring"));
 
 		// tonumber(value)
-		state.Register("tonumber", new LuaCallbackFunction(
+		state.SetGlobal("tonumber", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0 || !args[0].TryToNumber(out var n))
@@ -57,14 +57,14 @@ public class AdvancedIntegrationTests
 			}, "tonumber"));
 
 		// error(message)
-		state.Register("error", new LuaCallbackFunction(new LuaCallbackFunction.CallbackDelegate(
+		state.SetGlobal("error", new LuaCallbackFunction(new LuaCallbackFunction.CallbackDelegate(
 			(ctx, args) =>
 				throw new LuaRuntimeException(
 					args.Length > 0 ? args[0].ToString() : "error")),
 			"error"));
 
 		// assert(v, message)
-		state.Register("assert", new LuaCallbackFunction(
+		state.SetGlobal("assert", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length > 0 && !args[0].ToBoolean())
@@ -76,7 +76,7 @@ public class AdvancedIntegrationTests
 			}, "assert"));
 
 		// ipairs(t) — works around TFORCALL state-update quirk by returning table as second value.
-		state.Register("ipairs", new LuaCallbackFunction(
+		state.SetGlobal("ipairs", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0 || args[0] is not LuaTable t)
@@ -95,7 +95,7 @@ public class AdvancedIntegrationTests
 			}, "ipairs"));
 
 		// pairs(t) — stateless next-like iterator, fresh for each for-in loop.
-		state.Register("pairs", new LuaCallbackFunction(
+		state.SetGlobal("pairs", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0 || args[0] is not LuaTable t)
@@ -120,7 +120,7 @@ public class AdvancedIntegrationTests
 			}, "pairs"));
 
 		// table.insert(t, [pos,] value)
-		state.Register("table_insert", new LuaCallbackFunction(
+		state.SetGlobal("table_insert", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 2 || args[0] is not LuaTable tbl)
@@ -139,7 +139,7 @@ public class AdvancedIntegrationTests
 			}, "table_insert"));
 
 		// table.remove(t, [pos])
-		state.Register("table_remove", new LuaCallbackFunction(
+		state.SetGlobal("table_remove", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 1 || args[0] is not LuaTable tbl)
@@ -158,7 +158,7 @@ public class AdvancedIntegrationTests
 			}, "table_remove"));
 
 		// table.concat(t, [sep])
-		state.Register("table_concat", new LuaCallbackFunction(
+		state.SetGlobal("table_concat", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 1 || args[0] is not LuaTable tbl)
@@ -218,7 +218,7 @@ public class AdvancedIntegrationTests
 
 	private static void RegisterMetatableFunctions(LuaState state)
 	{
-		state.Register("setmetatable", new LuaCallbackFunction(
+		state.SetGlobal("setmetatable", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 1) return new LuaTuple(LuaNil.Instance);
@@ -230,7 +230,7 @@ public class AdvancedIntegrationTests
 				return new LuaTuple(target);
 			}, "setmetatable"));
 
-		state.Register("getmetatable", new LuaCallbackFunction(
+		state.SetGlobal("getmetatable", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0) return new LuaTuple(LuaNil.Instance);
@@ -242,7 +242,7 @@ public class AdvancedIntegrationTests
 				return new LuaTuple(table);
 			}, "getmetatable"));
 
-		state.Register("rawget", new LuaCallbackFunction(
+		state.SetGlobal("rawget", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 2 || args[0] is not LuaTable table)
@@ -250,7 +250,7 @@ public class AdvancedIntegrationTests
 				return new LuaTuple(table.Get(args[1]));
 			}, "rawget"));
 
-		state.Register("rawset", new LuaCallbackFunction(
+		state.SetGlobal("rawset", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 3 || args[0] is not LuaTable table)

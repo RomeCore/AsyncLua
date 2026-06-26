@@ -23,14 +23,13 @@ namespace AsyncLua.Interpreting
 		/// </summary>
 		/// <param name="function">The function prototype to execute.</param>
 		/// <param name="context">The global environment table.</param>
-		/// <param name="maxStackSize">Maximum call stack depth.</param>
 		/// <returns>
 		/// A <see cref="LuaTuple"/> containing all return values.
 		/// Use <see cref="LuaTuple.First"/> to get the first value in single-return contexts.
 		/// </returns>
-		public static LuaTuple Call(FunctionPrototype function, LuaCallingContext context, int maxStackSize = DefaultMaxStackSize)
+		public static LuaTuple Call(FunctionPrototype function, LuaCallingContext context)
 		{
-			return CallInternal(function, context, maxStackSize, async: false).GetAwaiter().GetResult();
+			return CallInternal(function, context, async: false).GetAwaiter().GetResult();
 		}
 
 		/// <summary>
@@ -39,13 +38,12 @@ namespace AsyncLua.Interpreting
 		/// </summary>
 		/// <param name="function">The function prototype to execute.</param>
 		/// <param name="context">The global environment table.</param>
-		/// <param name="maxStackSize">Maximum call stack depth.</param>
 		/// <returns>
 		/// A task that resolves to a <see cref="LuaTuple"/> containing all return values.
 		/// </returns>
-		public static Task<LuaTuple> CallAsync(FunctionPrototype function, LuaCallingContext context, int maxStackSize = DefaultMaxStackSize)
+		public static Task<LuaTuple> CallAsync(FunctionPrototype function, LuaCallingContext context)
 		{
-			return CallInternal(function, context, maxStackSize, async: true);
+			return CallInternal(function, context, async: true);
 		}
 
 		/// <summary>
@@ -56,20 +54,19 @@ namespace AsyncLua.Interpreting
 			FunctionPrototype function,
 			LuaCallingContext context,
 			LuaValue[] args,
-			LuaNativeFunction? closure = null,
-			int maxStackSize = DefaultMaxStackSize)
+			LuaNativeFunction? closure = null)
 		{
-			return CallInternal(function, context, maxStackSize, async: true, initialArgs: args, initialClosure: closure);
+			return CallInternal(function, context, async: true, initialArgs: args, initialClosure: closure);
 		}
 
 		private static async Task<LuaTuple> CallInternal(
 			FunctionPrototype function,
 			LuaCallingContext context,
-			int maxStackSize,
 			bool async,
 			LuaValue[]? initialArgs = null,
 			LuaNativeFunction? initialClosure = null)
 		{
+			int maxStackSize = context.Settings.MaxStackSize;
 			if (maxStackSize <= 0)
 				throw new ArgumentException("Max stack size must be greater than zero.", nameof(maxStackSize));
 

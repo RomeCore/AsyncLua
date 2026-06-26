@@ -5,7 +5,11 @@ namespace AsyncLua.Values
 {
 	/// <summary>
 	/// Represents a callable Lua function. This is the abstract base class for both
-	/// C# callbacks (<see cref="LuaCallbackFunction"/>) and compiled Lua closures.
+	/// C# callbacks (<see cref="LuaCallbackFunction"/>) and compiled Lua closures 
+	/// (<see cref="LuaNativeFunction"/>). The functions can be marked as asynchronous
+	/// by using the <see langword="async"/> keyword in their definition or <c>isAsync</c>
+	/// parameter for C# callbacks. When functions is asynchronous, they will be executed
+	/// in separate interpreter and <see cref="LuaTask"/> will be returned.
 	/// </summary>
 	public abstract class LuaFunction : LuaValue
 	{
@@ -26,7 +30,7 @@ namespace AsyncLua.Values
 		/// <param name="context">The calling context, providing access to the Lua runtime.</param>
 		/// <param name="args">The arguments passed to the function. Never <see langword="null"/>.</param>
 		/// <returns>A task that resolves to the function's return values as a <see cref="LuaTuple"/>.</returns>
-		public abstract Task<LuaTuple> InvokeAsync(LuaCallingContext context, LuaValue[] args);
+		public abstract Task<LuaTuple> InvokeAsync(LuaCallingContext context, params LuaValue[] args);
 
 		/// <summary>
 		/// Invokes the function synchronously. Blocks until the result is available.
@@ -35,7 +39,7 @@ namespace AsyncLua.Values
 		/// <param name="context">The calling context, providing access to the Lua runtime.</param>
 		/// <param name="args">The arguments passed to the function. Never <see langword="null"/>.</param>
 		/// <returns>The function's return values as a <see cref="LuaTuple"/>.</returns>
-		public LuaTuple Invoke(LuaCallingContext context, LuaValue[] args)
+		public LuaTuple Invoke(LuaCallingContext context, params LuaValue[] args)
 		{
 			return InvokeAsync(context, args).GetAwaiter().GetResult();
 		}

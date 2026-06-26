@@ -279,7 +279,7 @@ public class CompilerIntegrationTests
 	public void FunctionCall_Simple_ReturnsResult()
 	{
 		var state = new LuaState();
-		state.Register("add", LuaCallbackFunction.From(
+		state.SetGlobal("add", LuaCallbackFunction.From(
 			(LuaValue[] args) => new LuaNumber(
 				((LuaNumber)args[0]).Value + ((LuaNumber)args[1]).Value)));
 

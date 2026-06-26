@@ -162,14 +162,14 @@ namespace AsyncLua.Interpreting
 		SETGLOBAL,
 
 		/// <summary>
-		/// Acquire an exclusive lock on the object in <c>R[A]</c> via <see cref="System.Threading.Monitor.Enter(object)"/>.
+		/// Acquire an exclusive lock on the object in <c>R[A]</c> via <see cref="LuaMonitor.Enter(object)"/> or <see cref="LuaMonitor.EnterAsync(object)"/>.
 		/// The lock is tracked on an internal stack and automatically released on frame exit (even on exception).
 		/// </summary>
 		LOCK,
 
 		/// <summary>
 		/// Release the lock previously acquired by <see cref="LOCK"/> on the object in <c>R[A]</c>
-		/// via <see cref="System.Threading.Monitor.Exit(object)"/>.
+		/// via <see cref="LuaMonitor.Exit(object)"/>.
 		/// </summary>
 		UNLOCK,
 

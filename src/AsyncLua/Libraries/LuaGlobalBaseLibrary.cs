@@ -8,7 +8,7 @@ namespace AsyncLua.Libraries
 	/// <para>
 	/// Libraries derived from <see cref="LuaGlobalBaseLibrary"/> have a <see cref="LuaLibrary.Namespace"/>
 	/// of <see langword="null"/> and register their functions individually via
-	/// <see cref="LuaState.Register"/>.
+	/// <see cref="LuaState.SetGlobal"/>.
 	/// </para>
 	/// <para>
 	/// Examples of global functions: <c>print</c>, <c>type</c>, <c>tostring</c>,

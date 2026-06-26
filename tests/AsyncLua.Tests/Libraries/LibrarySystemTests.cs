@@ -122,7 +122,7 @@ public class LibrarySystemTests
 	{
 		public override void Import(LuaState state)
 		{
-			state.Register("myVersion", new LuaCallbackFunction(
+			state.SetGlobal("myVersion", new LuaCallbackFunction(
 				(ctx, args) => new LuaTuple(new LuaString("1.0")), "myVersion"));
 		}
 	}

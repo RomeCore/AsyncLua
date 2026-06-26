@@ -1,4 +1,7 @@
 using System;
+using System.Linq;
+using System.Threading.Tasks;
+using AsyncLua.Parsing.Statements;
 using AsyncLua.Values;
 
 namespace AsyncLua.Libraries
@@ -16,16 +19,21 @@ namespace AsyncLua.Libraries
 		/// <param name="state">The Lua state to import into.</param>
 		public override void Import(LuaState state)
 		{
-			state.Register("print", new LuaCallbackFunction(Print, "print"));
-			state.Register("type", new LuaCallbackFunction(Type, "type"));
-			state.Register("tostring", new LuaCallbackFunction(ToString, "tostring"));
-			state.Register("tonumber", new LuaCallbackFunction(ToNumber, "tonumber"));
-			state.Register("error", new LuaCallbackFunction(Error, "error"));
-			state.Register("assert", new LuaCallbackFunction(Assert, "assert"));
-			state.Register("ipairs", new LuaCallbackFunction(Ipairs, "ipairs"));
-			state.Register("pairs", new LuaCallbackFunction(Pairs, "pairs"));
-			state.Register("next", new LuaCallbackFunction(Next, "next"));
-			state.Register("select", new LuaCallbackFunction(Select, "select"));
+			state.SetGlobal("print", new LuaCallbackFunction(Print, "print"));
+			state.SetGlobal("type", new LuaCallbackFunction(Type, "type"));
+			state.SetGlobal("tostring", new LuaCallbackFunction(ToString, "tostring"));
+			state.SetGlobal("tonumber", new LuaCallbackFunction(ToNumber, "tonumber"));
+			state.SetGlobal("is_async", new LuaCallbackFunction(IsAsync, "is_async"));
+			state.SetGlobal("error", new LuaCallbackFunction(Error, "error"));
+			state.SetGlobal("assert", new LuaCallbackFunction(Assert, "assert"));
+			state.SetGlobal("pcall", new LuaCallbackFunction(Pcall, "pcall", isAsync: false));
+			state.SetGlobal("pcall_async", new LuaCallbackFunction(Pcall, "pcall_async", isAsync: true));
+			state.SetGlobal("xpcall", new LuaCallbackFunction(Xpcall, "xpcall", isAsync: false));
+			state.SetGlobal("xpcall_async", new LuaCallbackFunction(Xpcall, "xpcall_async", isAsync: true));
+			state.SetGlobal("ipairs", new LuaCallbackFunction(Ipairs, "ipairs"));
+			state.SetGlobal("pairs", new LuaCallbackFunction(Pairs, "pairs"));
+			state.SetGlobal("next", new LuaCallbackFunction(Next, "next"));
+			state.SetGlobal("select", new LuaCallbackFunction(Select, "select"));
 		}
 
 		private static LuaTuple Print(LuaCallingContext ctx, LuaValue[] args)
@@ -69,6 +77,13 @@ namespace AsyncLua.Libraries
 			return new LuaTuple(new LuaNumber(n));
 		}
 
+		private static LuaTuple IsAsync(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0 || args[0] is not LuaFunction func)
+				return new LuaTuple(LuaNil.Instance);
+			return new LuaTuple(LuaBoolean.FromBoolean(func.IsAsync));
+		}
+
 		private static LuaTuple Error(LuaCallingContext ctx, LuaValue[] args)
 		{
 			throw new LuaRuntimeException(
@@ -83,6 +98,41 @@ namespace AsyncLua.Libraries
 				throw new LuaRuntimeException(msg);
 			}
 			return args.Length > 0 ? new LuaTuple(args) : LuaTuple.Empty;
+		}
+
+		private static async Task<LuaTuple> Pcall(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0 || args[0] is not LuaFunction func)
+				throw new LuaRuntimeException("pcall: expected function as first argument, got " + (args.Length > 0 ? args[0].TypeName : "nil"));
+			
+			try
+			{
+				var result = await func.InvokeAsync(ctx, args.Skip(1).ToArray());
+				return new LuaTuple(result.Prepend(LuaBoolean.True));
+			}
+			catch (LuaRuntimeException ex)
+			{
+				return new LuaTuple(LuaBoolean.False, new LuaString(ex.OriginalMessage));
+			}
+		}
+
+		private static async Task<LuaTuple> Xpcall(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0 || args[0] is not LuaFunction func)
+				throw new LuaRuntimeException("pcall: expected function as first argument, got " + (args.Length > 0 ? args[0].TypeName : "nil"));
+			if (args.Length == 1 || args[1] is not LuaFunction errHandlerFunc)
+				throw new LuaRuntimeException("pcall: expected error handler function as second argument, got " + (args.Length > 1 ? args[1].TypeName : "nil"));
+
+			try
+			{
+				var result = await func.InvokeAsync(ctx, args.Skip(2).ToArray());
+				return new LuaTuple(result.Prepend(LuaBoolean.True));
+			}
+			catch (LuaRuntimeException ex)
+			{
+				var errHandlerResult = await errHandlerFunc.InvokeAsync(ctx, new LuaString(ex.OriginalMessage));
+				return new LuaTuple(errHandlerResult.Prepend(LuaBoolean.False));
+			}
 		}
 
 		private static LuaTuple Ipairs(LuaCallingContext ctx, LuaValue[] args)

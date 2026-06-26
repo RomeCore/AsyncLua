@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using AsyncLua.Compiling;
+using AsyncLua.Interpreting;
 using AsyncLua.Libraries;
 using AsyncLua.Parsing;
 using AsyncLua.Values;
@@ -22,6 +23,8 @@ namespace AsyncLua
 	/// </remarks>
 	public class LuaState
 	{
+		private static readonly AsyncLuaParser _defaultParser = new();
+
 		private readonly AsyncLuaParser _parser;
 		private readonly CompilerSettings _compilerSettings;
 
@@ -41,7 +44,7 @@ namespace AsyncLua
 		/// </summary>
 		public LuaState()
 		{
-			_parser = new AsyncLuaParser();
+			_parser = _defaultParser;
 			_compilerSettings = new CompilerSettings();
 
 			Globals = new LuaTable();
@@ -55,7 +58,7 @@ namespace AsyncLua
 		/// </summary>
 		public LuaState(AsyncLuaParser? parser, CompilerSettings? compilerSettings)
 		{
-			_parser = parser ?? new AsyncLuaParser();
+			_parser = parser ?? _defaultParser;
 			_compilerSettings = compilerSettings ?? new CompilerSettings();
 
 			Globals = new LuaTable();
@@ -70,46 +73,59 @@ namespace AsyncLua
 		///   <item><description><c>MathLibrary</c> — math functions and constants</description></item>
 		///   <item><description><c>StringLibrary</c> — string manipulation functions</description></item>
 		///   <item><description><c>TableLibrary</c> — table manipulation functions</description></item>
+		///   <item><description><c>CoroutineLibrary</c> — coroutine functions (coroutine.create, coroutine.resume, coroutine.yield)</description></item>
 		/// </list>
 		/// </summary>
 		/// <returns>This Lua state instance, for fluent chaining.</returns>
 		public LuaState LoadDefaultLibraries()
 		{
-			new Libraries.BasicLibrary().Import(this);
-			new Libraries.MathLibrary().Import(this);
-			new Libraries.StringLibrary().Import(this);
-			new Libraries.TableLibrary().Import(this);
-			new Libraries.CoroutineLibrary().Import(this);
+			new BasicLibrary().Import(this);
+			new MathLibrary().Import(this);
+			new StringLibrary().Import(this);
+			new TableLibrary().Import(this);
+			new CoroutineLibrary().Import(this);
 
 			return this;
 		}
 
 		/// <summary>
-		/// Registers a Lua function in the global environment under the specified name.
+		/// Sets a Lua object in the global environment under the specified name.
 		/// </summary>
-		/// <param name="name">The global variable name (e.g., "print", "http_get").</param>
-		/// <param name="function">The function to register.</param>
+		/// <param name="name">The global variable name optionally separated by dots to access nested tables or modules (e.g., "print", "web.http_get", "math.pi").</param>
+		/// <param name="value">The value to set.</param>
 		/// <exception cref="ArgumentNullException">
-		/// Thrown if <paramref name="name"/> or <paramref name="function"/> is <see langword="null"/>.
+		/// Thrown if <paramref name="name"/> or <paramref name="value"/> is <see langword="null"/>.
 		/// </exception>
-		public void Register(string name, LuaFunction function)
+		public void SetGlobal(string name, LuaValue value)
 		{
 			if (name is null)
 				throw new ArgumentNullException(nameof(name));
-			if (function is null)
-				throw new ArgumentNullException(nameof(function));
+			if (value is null)
+				throw new ArgumentNullException(nameof(value));
 
-			Globals.Set(new LuaString(name), function);
+			var table = Globals;
+
+			int lastDotIndex = name.LastIndexOf('.');
+			if (lastDotIndex != -1)
+				table = table.ResolveNamespace(name.Substring(0, lastDotIndex));
+
+			table.Set(new LuaString(name), value);
 		}
 
 		/// <summary>
 		/// Retrieves a value from the global environment.
 		/// </summary>
-		/// <param name="name">The global variable name.</param>
+		/// <param name="name">The global variable name optionally separated by dots to access nested tables or modules (e.g., "web.http_get", "math.pi").</param>
 		/// <returns>The stored value, or <c>nil</c> if not found.</returns>
 		public LuaValue GetGlobal(string name)
 		{
-			return Globals.Get(new LuaString(name));
+			var table = Globals;
+
+			int lastDotIndex = name.LastIndexOf('.');
+			if (lastDotIndex != -1)
+				table = table.ResolveNamespace(name.Substring(0, lastDotIndex));
+
+			return table.Get(new LuaString(name));
 		}
 
 		/// <summary>
@@ -142,8 +158,8 @@ namespace AsyncLua
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
-			var prototype = Compiling.AsyncLuaCompiler.Compile(block, sourceName: sourceName);
-			return Interpreting.AsyncLuaInterpreter.Call(prototype, CreateContext());
+			var prototype = AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			return AsyncLuaInterpreter.Call(prototype, CreateContext());
 		}
 
 		/// <summary>
@@ -158,6 +174,35 @@ namespace AsyncLua
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
+		public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null)
+		{
+			if (code is null)
+				throw new ArgumentNullException(nameof(code));
+
+			var block = _parser.Parse(code);
+			var prototype = AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			return await AsyncLuaInterpreter.CallAsync(prototype, CreateContext());
+		}
+
+		/// <summary>
+		/// Compiles the specified Lua code into a <see cref="CompiledLuaCode"/> object to be executed later.
+		/// </summary>
+		/// <param name="code">The Lua source code to compile.</param>
+		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+		/// <returns>The compiled Lua code.</returns>
+		/// <exception cref="ArgumentNullException">
+		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
+		/// </exception>
+		public CompiledLuaCode Compile(string code, string? sourceName = null)
+		{
+			if (code is null)
+				throw new ArgumentNullException(nameof(code));
+
+			var block = _parser.Parse(code);
+			var prototype = AsyncLuaCompiler.Compile(block, sourceName: sourceName);
+			return new CompiledLuaCode(CreateContext(), prototype);
+		}
+
 		/// <summary>
 		/// Parses and compiles the specified Lua code and returns the disassembled bytecode
 		/// as a human-readable string. Does not execute the code.
@@ -173,15 +218,6 @@ namespace AsyncLua
 			var block = _parser.Parse(code);
 			var prototype = Compiling.AsyncLuaCompiler.Compile(block, sourceName: sourceName);
 			return prototype.Disassemble();
-		}
-		public async Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null)
-		{
-			if (code is null)
-				throw new ArgumentNullException(nameof(code));
-
-			var block = _parser.Parse(code);
-			var prototype = Compiling.AsyncLuaCompiler.Compile(block, sourceName: sourceName);
-			return await Interpreting.AsyncLuaInterpreter.CallAsync(prototype, CreateContext());
 		}
 	}
 }

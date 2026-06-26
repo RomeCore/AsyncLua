@@ -17,30 +17,30 @@ public class StressIntegrationTests
 
 	private static void RegisterLibrary(LuaState state)
 	{
-		state.Register("print", LuaCallbackFunction.From((LuaValue[] _) => LuaTuple.Empty, "print"));
-		state.Register("type", new LuaCallbackFunction(
+		state.SetGlobal("print", LuaCallbackFunction.From((LuaValue[] _) => LuaTuple.Empty, "print"));
+		state.SetGlobal("type", new LuaCallbackFunction(
 			(ctx, args) => args.Length == 0
 				? new LuaTuple(new LuaString("nil"))
 				: new LuaTuple(new LuaString(args[0].TypeName)), "type"));
-		state.Register("tostring", new LuaCallbackFunction(
+		state.SetGlobal("tostring", new LuaCallbackFunction(
 			(ctx, args) => args.Length == 0
 				? new LuaTuple(new LuaString("nil"))
 				: new LuaTuple(new LuaString(args[0].ToString())), "tostring"));
-		state.Register("tonumber", new LuaCallbackFunction(
+		state.SetGlobal("tonumber", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0 || !args[0].TryToNumber(out var n))
 					return new LuaTuple(LuaNil.Instance);
 				return new LuaTuple(new LuaNumber(n));
 			}, "tonumber"));
-		state.Register("assert", new LuaCallbackFunction(
+		state.SetGlobal("assert", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length > 0 && !args[0].ToBoolean())
 					throw new LuaRuntimeException(args.Length > 1 ? args[1].ToString() : "assertion failed!");
 				return args.Length > 0 ? new LuaTuple(args) : LuaTuple.Empty;
 			}, "assert"));
-		state.Register("error", new LuaCallbackFunction(
+		state.SetGlobal("error", new LuaCallbackFunction(
 			new LuaCallbackFunction.CallbackDelegate((ctx, args) =>
 				throw new LuaRuntimeException(args.Length > 0 ? args[0].ToString() : "error")), "error"));
 
@@ -59,7 +59,7 @@ public class StressIntegrationTests
 			(ctx, args) => new LuaTuple(new LuaNumber(
 				Math.Min(((LuaNumber)args[0]).Value, ((LuaNumber)args[1]).Value))), "math.min"));
 
-		state.Register("ipairs", new LuaCallbackFunction(
+		state.SetGlobal("ipairs", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0 || args[0] is not LuaTable t)
@@ -77,7 +77,7 @@ public class StressIntegrationTests
 				return new LuaTuple(iter, t, new LuaNumber(0));
 			}, "ipairs"));
 
-		state.Register("pairs", new LuaCallbackFunction(
+		state.SetGlobal("pairs", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0 || args[0] is not LuaTable t)
@@ -117,7 +117,7 @@ public class StressIntegrationTests
 			(ctx, args) => new LuaTuple(new LuaNumber(args[0].ToString().Length)), "string.len"));
 
 		// table.concat
-		state.Register("table_concat", new LuaCallbackFunction(
+		state.SetGlobal("table_concat", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 1 || args[0] is not LuaTable tbl)
@@ -134,7 +134,7 @@ public class StressIntegrationTests
 			}, "table_concat"));
 
 		// table.insert
-		state.Register("table_insert", new LuaCallbackFunction(
+		state.SetGlobal("table_insert", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 2 || args[0] is not LuaTable tbl) return LuaTuple.Empty;
@@ -152,7 +152,7 @@ public class StressIntegrationTests
 			}, "table_insert"));
 
 		// Metatable functions
-		state.Register("setmetatable", new LuaCallbackFunction(
+		state.SetGlobal("setmetatable", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 1) return new LuaTuple(LuaNil.Instance);
@@ -163,7 +163,7 @@ public class StressIntegrationTests
 					target.Metatable = LuaMetatable.FromTable(mtTable);
 				return new LuaTuple(target);
 			}, "setmetatable"));
-		state.Register("getmetatable", new LuaCallbackFunction(
+		state.SetGlobal("getmetatable", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0) return new LuaTuple(LuaNil.Instance);
@@ -174,14 +174,14 @@ public class StressIntegrationTests
 					table.Set(new LuaString(LuaMetatable.GetEventName(kvp.Key)), kvp.Value);
 				return new LuaTuple(table);
 			}, "getmetatable"));
-		state.Register("rawget", new LuaCallbackFunction(
+		state.SetGlobal("rawget", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 2 || args[0] is not LuaTable table)
 					return new LuaTuple(LuaNil.Instance);
 				return new LuaTuple(table.Get(args[1]));
 			}, "rawget"));
-		state.Register("rawset", new LuaCallbackFunction(
+		state.SetGlobal("rawset", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 3 || args[0] is not LuaTable table)

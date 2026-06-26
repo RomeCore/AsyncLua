@@ -18,7 +18,7 @@ public class MetatableInterpreterTests
 		var state = new LuaState();
 
 		// setmetatable(value, mt) → value
-		state.Register("setmetatable", new LuaCallbackFunction(
+		state.SetGlobal("setmetatable", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 1)
@@ -32,7 +32,7 @@ public class MetatableInterpreterTests
 			}, "setmetatable"));
 
 		// getmetatable(value) → metatable as table, or nil
-		state.Register("getmetatable", new LuaCallbackFunction(
+		state.SetGlobal("getmetatable", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0)
@@ -51,7 +51,7 @@ public class MetatableInterpreterTests
 			}, "getmetatable"));
 
 		// type(value) → string
-		state.Register("type", new LuaCallbackFunction(
+		state.SetGlobal("type", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0)
@@ -60,7 +60,7 @@ public class MetatableInterpreterTests
 			}, "type"));
 
 		// tostring(value) → string
-		state.Register("tostring", new LuaCallbackFunction(
+		state.SetGlobal("tostring", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0)
@@ -69,7 +69,7 @@ public class MetatableInterpreterTests
 			}, "tostring"));
 
 		// rawget(table, key) → value
-		state.Register("rawget", new LuaCallbackFunction(
+		state.SetGlobal("rawget", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 2 || args[0] is not LuaTable table)
@@ -78,7 +78,7 @@ public class MetatableInterpreterTests
 			}, "rawget"));
 
 		// rawset(table, key, value) → table
-		state.Register("rawset", new LuaCallbackFunction(
+		state.SetGlobal("rawset", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 3 || args[0] is not LuaTable table)
@@ -88,7 +88,7 @@ public class MetatableInterpreterTests
 			}, "rawset"));
 
 		// Helper: make_metatable(table) — sets a C#-backed __len that always returns 42
-		state.Register("make_callback_mt", new LuaCallbackFunction(
+		state.SetGlobal("make_callback_mt", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 1 || args[0] is not LuaTable target)
@@ -421,7 +421,7 @@ public class MetatableInterpreterTests
 	{
 		// Register a C# callback for __add on a table.
 		var state = CreateState();
-		state.Register("setup_add_mt", new LuaCallbackFunction(
+		state.SetGlobal("setup_add_mt", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length < 1 || args[0] is not LuaTable target)
@@ -677,7 +677,7 @@ public class MetatableInterpreterTests
 	{
 		// __tostring should be called by the tostring() function.
 		var state = CreateState();
-		state.Register("tostring", new LuaCallbackFunction(
+		state.SetGlobal("tostring", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0) return new LuaTuple(new LuaString("nil"));
@@ -711,7 +711,7 @@ public class MetatableInterpreterTests
 		// __metatable: when set, getmetatable returns this value instead of the real metatable.
 		var state = CreateState();
 		// Override getmetatable to respect __metatable protection.
-		state.Register("getmetatable", new LuaCallbackFunction(
+		state.SetGlobal("getmetatable", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0) return new LuaTuple(LuaNil.Instance);

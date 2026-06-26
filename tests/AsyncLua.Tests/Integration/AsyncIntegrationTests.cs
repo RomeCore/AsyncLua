@@ -13,7 +13,7 @@ public class AsyncIntegrationTests
 		var state = new LuaState();
 
 		// sleep(ms) — returns a task that completes after the delay.
-		state.Register("sleep", new LuaCallbackFunction(
+		state.SetGlobal("sleep", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				var ms = args.Length > 0 ? (int)((LuaNumber)args[0]).Value : 0;
@@ -22,7 +22,7 @@ public class AsyncIntegrationTests
 			}), "sleep"));
 
 		// fetch(id, delay, result) — simulates an async HTTP call.
-		state.Register("fetch", new LuaCallbackFunction(
+		state.SetGlobal("fetch", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				var delay = args.Length > 1 ? (int)((LuaNumber)args[1]).Value : 50;
@@ -32,7 +32,7 @@ public class AsyncIntegrationTests
 			}), "fetch"));
 
 		// counter — an async function that atomically increments a counter.
-		state.Register("increment", new LuaCallbackFunction(
+		state.SetGlobal("increment", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(5);
@@ -43,7 +43,7 @@ public class AsyncIntegrationTests
 			}), "increment"));
 
 		// assert
-		state.Register("assert", new LuaCallbackFunction(
+		state.SetGlobal("assert", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length > 0 && !args[0].ToBoolean())
@@ -55,28 +55,28 @@ public class AsyncIntegrationTests
 			}, "assert"));
 
 		// error(message)
-		state.Register("error", new LuaCallbackFunction(new LuaCallbackFunction.CallbackDelegate(
+		state.SetGlobal("error", new LuaCallbackFunction(new LuaCallbackFunction.CallbackDelegate(
 			(ctx, args) =>
 				throw new LuaRuntimeException(
 					args.Length > 0 ? args[0].ToString() : "error")),
 			"error"));
 
 		// type / tostring / tonumber
-		state.Register("type", new LuaCallbackFunction(
+		state.SetGlobal("type", new LuaCallbackFunction(
 			(ctx, args) =>
 				args.Length == 0
 					? new LuaTuple(new LuaString("nil"))
 					: new LuaTuple(new LuaString(args[0].TypeName)),
 			"type"));
 
-		state.Register("tostring", new LuaCallbackFunction(
+		state.SetGlobal("tostring", new LuaCallbackFunction(
 			(ctx, args) =>
 				args.Length == 0
 					? new LuaTuple(new LuaString("nil"))
 					: new LuaTuple(new LuaString(args[0].ToString())),
 			"tostring"));
 
-		state.Register("tonumber", new LuaCallbackFunction(
+		state.SetGlobal("tonumber", new LuaCallbackFunction(
 			(ctx, args) =>
 			{
 				if (args.Length == 0 || !args[0].TryToNumber(out var n))
@@ -173,6 +173,41 @@ public class AsyncIntegrationTests
 				local r2 = await task2
 				local r3 = await task3
 				return r1, r2, r3
+			end
+
+			return await loadConcurrently()
+		");
+
+		sw.Stop();
+
+		Assert.Equal(3, result.Count);
+		Assert.Equal("one", Assert.IsType<LuaString>(result[0]).Value);
+		Assert.Equal("two", Assert.IsType<LuaString>(result[1]).Value);
+		Assert.Equal("three", Assert.IsType<LuaString>(result[2]).Value);
+
+		// Concurrency proven: total < 200ms (3 × 100ms sequential would be 300ms).
+		Assert.True(sw.ElapsedMilliseconds < 250,
+			$"Expected concurrent execution (< 250ms), took {sw.ElapsedMilliseconds}ms");
+	}
+
+	[Fact]
+	public async Task Await_ConcurrentExecution_TasksRunInParallel_Alternative()
+	{
+		var state = CreateState();
+
+		// Prove concurrency by measuring wall-clock time.
+		// Three tasks each take 100ms. Sequential = 300ms. Concurrent ≈ 100ms.
+		var sw = System.Diagnostics.Stopwatch.StartNew();
+
+		var result = await ExecuteAsync(state, @"
+			async function loadConcurrently()
+				-- Launch all tasks first (non-blocking).
+				local task1 = fetch('1', 100, 'one')
+				local task2 = fetch('2', 100, 'two')
+				local task3 = fetch('3', 100, 'three')
+
+				-- Await all.
+				return await task1, await task2, await task3
 			end
 
 			return await loadConcurrently()
@@ -350,7 +385,7 @@ public class AsyncIntegrationTests
 	{
 		var state = CreateState();
 
-		state.Register("double", new LuaCallbackFunction(
+		state.SetGlobal("double", new LuaCallbackFunction(
 			(ctx, args) => new LuaTuple(new LuaNumber(((LuaNumber)args[0]).Value * 2)),
 			"double"));
 
@@ -399,7 +434,7 @@ public class AsyncIntegrationTests
 	{
 		var state = CreateState();
 
-		state.Register("riskyFetch", new LuaCallbackFunction(
+		state.SetGlobal("riskyFetch", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(10);
@@ -434,7 +469,7 @@ public class AsyncIntegrationTests
 	{
 		var state = CreateState();
 
-		state.Register("maybeFail", new LuaCallbackFunction(
+		state.SetGlobal("maybeFail", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(20);
@@ -495,7 +530,7 @@ public class AsyncIntegrationTests
 		// Simulate: fetch → transform → store pipeline.
 		var results = new System.Collections.Concurrent.ConcurrentBag<string>();
 
-		state.Register("store", new LuaCallbackFunction(
+		state.SetGlobal("store", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(5);
@@ -563,7 +598,7 @@ public class AsyncIntegrationTests
 
 		var sideEffects = new System.Collections.Concurrent.ConcurrentBag<string>();
 
-		state.Register("notify", new LuaCallbackFunction(
+		state.SetGlobal("notify", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(10);

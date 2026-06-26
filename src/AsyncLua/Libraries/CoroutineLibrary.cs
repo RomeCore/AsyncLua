@@ -23,17 +23,13 @@ namespace AsyncLua.Libraries
 	///   <item><description><c>coroutine.running()</c> — returns the currently running coroutine.</description></item>
 	/// </list>
 	/// <para>
-	/// Because <c>yield</c> uses <c>await</c> internally, the coroutine function
-	/// and all callers of <c>coroutine.resume</c> must be inside an async context.
-	/// Use the <c>async</c> keyword on the Lua function and <c>await</c> for
-	/// both <c>yield</c> and <c>resume</c>:
 	/// <code>
 	/// local co = coroutine.create(async function()
-	///     local x = await coroutine.yield(10)
+	///     local x = await coroutine.yield_async(10)
 	///     return x + 20
 	/// end)
-	/// local ok, y = await coroutine.resume(co)    -- y = 10
-	/// local ok, r = await coroutine.resume(co, 100) -- r = 120
+	/// local ok, y = await coroutine.resume_async(co)    -- y = 10
+	/// local ok, r = await coroutine.resume_async(co, 100) -- r = 120
 	/// </code>
 	/// </para>
 	/// </remarks>
@@ -53,9 +49,13 @@ namespace AsyncLua.Libraries
 			// use AsyncCallbackDelegate because they call async methods.
 			table.Set(new LuaString("create"), new LuaCallbackFunction(Create, "coroutine.create"));
 			table.Set(new LuaString("resume"), new LuaCallbackFunction(
-				new LuaCallbackFunction.AsyncCallbackDelegate(ResumeAsync), "coroutine.resume"));
+				new LuaCallbackFunction.AsyncCallbackDelegate(ResumeAsync), "coroutine.resume", isAsync: false));
+			table.Set(new LuaString("resume_async"), new LuaCallbackFunction(
+				new LuaCallbackFunction.AsyncCallbackDelegate(ResumeAsync), "coroutine.resume_async", isAsync: true));
 			table.Set(new LuaString("yield"), new LuaCallbackFunction(
-				new LuaCallbackFunction.AsyncCallbackDelegate(YieldAsync), "coroutine.yield"));
+				new LuaCallbackFunction.AsyncCallbackDelegate(YieldAsync), "coroutine.yield", isAsync: false));
+			table.Set(new LuaString("yield_async"), new LuaCallbackFunction(
+				new LuaCallbackFunction.AsyncCallbackDelegate(YieldAsync), "coroutine.yield_async", isAsync: true));
 			table.Set(new LuaString("status"), new LuaCallbackFunction(Status, "coroutine.status"));
 			table.Set(new LuaString("wrap"), new LuaCallbackFunction(
 				new LuaCallbackFunction.AsyncCallbackDelegate(WrapAsync), "coroutine.wrap"));

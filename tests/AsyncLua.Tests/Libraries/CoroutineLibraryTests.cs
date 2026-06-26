@@ -31,7 +31,7 @@ public class CoroutineLibraryTests
 			local co = coroutine.create(function(n)
 				return n * 2
 			end)
-			local ok, val = await coroutine.resume(co, 21)
+			local ok, val = await coroutine.resume_async(co, 21)
 			assert(ok, 'resume failed')
 			assert(val == 42, 'expected 42, got ' .. val)
 			return ok, val
@@ -48,7 +48,7 @@ public class CoroutineLibraryTests
 			local co = coroutine.create(async function(n)
 				return n * 2
 			end)
-			local ok, val = await coroutine.resume(co, 21)
+			local ok, val = await coroutine.resume_async(co, 21)
 			assert(ok, 'resume failed')
 			assert(val == 42, 'expected 42, got ' .. val)
 			return ok, val
@@ -63,14 +63,14 @@ public class CoroutineLibraryTests
 		var state = CreateState();
 		var result = await state.ExecuteAsync(@"
 			local co = coroutine.create(async function()
-				local x = await coroutine.yield(10)
+				local x = coroutine.yield(10)
 				return x + 20
 			end)
-			local ok1, v1 = await coroutine.resume(co)
+			local ok1, v1 = coroutine.resume(co)
 			assert(ok1, 'first resume')
 			assert(v1 == 10, 'expected 10, got ' .. v1)
 
-			local ok2, v2 = await coroutine.resume(co, 100)
+			local ok2, v2 = coroutine.resume(co, 100)
 			assert(ok2, 'second resume')
 			assert(v2 == 120, 'expected 120, got ' .. v2)
 
@@ -87,13 +87,13 @@ public class CoroutineLibraryTests
 		var state = CreateState();
 		var result = await state.ExecuteAsync(@"
 			local co = coroutine.create(async function()
-				local a = await coroutine.yield('a')
-				local b = await coroutine.yield('b')
+				local a = await coroutine.yield_async('a')
+				local b = coroutine.yield('b')
 				return a .. b
 			end)
-			local _, v1 = await coroutine.resume(co)
-			local _, v2 = await coroutine.resume(co, 'HELLO')
-			local _, v3 = await coroutine.resume(co, 'WORLD')
+			local _, v1 = coroutine.resume(co)
+			local _, v2 = await coroutine.resume_async(co, 'HELLO')
+			local _, v3 = coroutine.resume(co, 'WORLD')
 			return v1, v2, v3
 		");
 		// v1 = first yield value = 'a'
@@ -114,16 +114,16 @@ public class CoroutineLibraryTests
 		var state = CreateState();
 		var result = await state.ExecuteAsync(@"
 			local co = coroutine.create(async function()
-				await coroutine.yield('inside')
+				await coroutine.yield_async('inside')
 				return 'done'
 			end)
 
 			local s1 = coroutine.status(co)
 
-			local _, y = await coroutine.resume(co)
+			local _, y = await coroutine.resume_async(co)
 			local s2 = coroutine.status(co)
 
-			local _, r = await coroutine.resume(co)
+			local _, r = await coroutine.resume_async(co)
 			local s3 = coroutine.status(co)
 
 			return s1, s2, s3, y, r
@@ -141,8 +141,8 @@ public class CoroutineLibraryTests
 		var state = CreateState();
 		var result = await state.ExecuteAsync(@"
 			local co = coroutine.create(async function() return 42 end)
-			local ok1, r1 = await coroutine.resume(co)
-			local ok2, r2 = await coroutine.resume(co)
+			local ok1, r1 = await coroutine.resume_async(co)
+			local ok2, r2 = await coroutine.resume_async(co)
 			return ok1, r1, ok2, r2
 		");
 		Assert.Equal(LuaBoolean.True, result[0]);
@@ -164,7 +164,7 @@ public class CoroutineLibraryTests
 			local co = coroutine.create(async function()
 				throw 'something broke'
 			end)
-			local ok, err = await coroutine.resume(co)
+			local ok, err = coroutine.resume(co)
 			return ok, err
 		");
 		Assert.Equal(LuaBoolean.False, result[0]);
@@ -177,11 +177,11 @@ public class CoroutineLibraryTests
 		var state = CreateState();
 		var result = await state.ExecuteAsync(@"
 			local co = coroutine.create(async function()
-				local x = await coroutine.yield('ready')
+				local x = coroutine.yield('ready')
 				throw 'fail after: ' .. x
 			end)
-			local ok1, v1 = await coroutine.resume(co)
-			local ok2, v2 = await coroutine.resume(co, 'test')
+			local ok1, v1 = await coroutine.resume_async(co)
+			local ok2, v2 = await coroutine.resume_async(co, 'test')
 			return ok1, v1, ok2, v2
 		");
 		Assert.Equal(LuaBoolean.True, result[0]);
@@ -207,7 +207,7 @@ public class CoroutineLibraryTests
 	{
 		var state = CreateState();
 		var result = await state.ExecuteAsync(@"
-			local ok, err = await coroutine.resume('not_a_thread')
+			local ok, err = await coroutine.resume_async('not_a_thread')
 			return ok, err
 		");
 		Assert.IsType<LuaNil>(result[0]);
@@ -224,8 +224,8 @@ public class CoroutineLibraryTests
 		var state = CreateState();
 		var result = await state.ExecuteAsync(@"
 			local f = await coroutine.wrap(async function()
-				local x = await coroutine.yield(1)
-				local y = await coroutine.yield(2)
+				local x = coroutine.yield(1)
+				local y = await coroutine.yield_async(2)
 				return x + y
 			end)
 			local r1 = await f()
@@ -244,7 +244,7 @@ public class CoroutineLibraryTests
 		var state = CreateState();
 		var ex = await Assert.ThrowsAsync<LuaRuntimeException>(async () =>
 			await state.ExecuteAsync(@"
-				local f = await coroutine.wrap(async function()
+				local f = await coroutine.wrap(function()
 					throw 'wrap failure'
 				end)
 				await f()
@@ -273,7 +273,7 @@ public class CoroutineLibraryTests
 				local t, isMain = coroutine.running()
 				return type(t), tostring(isMain)
 			end)
-			local _, tType, isMain = await coroutine.resume(co)
+			local _, tType, isMain = await coroutine.resume_async(co)
 			return tType, isMain
 		");
 		Assert.Equal("thread", Assert.IsType<LuaString>(result[0]).Value);
@@ -294,17 +294,17 @@ public class CoroutineLibraryTests
 				for i = 1, count do
 					sum = sum + i
 					if i < count then
-						await coroutine.yield(i)
+						await coroutine.yield_async(i)
 					end
 				end
 				return sum
 			end)
 
-			local ok1, y1 = await coroutine.resume(co, 5)
-			local ok2, y2 = await coroutine.resume(co)
-			local ok3, y3 = await coroutine.resume(co)
-			local ok4, y4 = await coroutine.resume(co)
-			local ok5, sum = await coroutine.resume(co)
+			local ok1, y1 = await coroutine.resume_async(co, 5)
+			local ok2, y2 = coroutine.resume(co)
+			local ok3, y3 = await coroutine.resume_async(co)
+			local ok4, y4 = coroutine.resume(co)
+			local ok5, sum = await coroutine.resume_async(co)
 
 			return ok1 and ok2 and ok3 and ok4 and ok5,
 			       y1, y2, y3, y4, sum
@@ -325,7 +325,7 @@ public class CoroutineLibraryTests
 			local co = coroutine.create(async function()
 				for i = 1, 20 do
 					if i < 20 then
-						await coroutine.yield(i)
+						await coroutine.yield_async(i)
 					end
 				end
 				return 'finished'
@@ -333,12 +333,12 @@ public class CoroutineLibraryTests
 
 			local results = {}
 			for i = 1, 19 do
-				local ok, val = await coroutine.resume(co)
+				local ok, val = await coroutine.resume_async(co)
 				assert(ok, 'failed at step ' .. i)
 				results[i] = val
 			end
 
-			local ok, final = await coroutine.resume(co)
+			local ok, final = await coroutine.resume_async(co)
 			assert(ok, 'final resume failed')
 			assert(final == 'finished')
 			return 'all_ok', #results, results[1], results[19]
@@ -362,10 +362,10 @@ public class CoroutineLibraryTests
 			-- yield is async and the function doesn't await it, the yield
 			-- handshake is skipped. The function returns a LuaTask.
 			local co = coroutine.create(function()
-				local t = coroutine.yield('test')
+				local t = coroutine.yield_async('test')
 				return type(t), tostring(t)
 			end)
-			local ok, r1, r2 = await coroutine.resume(co)
+			local ok, r1, r2 = await coroutine.resume_async(co)
 			return ok, r1, r2
 		");
 		Assert.Equal(LuaBoolean.True, result[0]);

@@ -170,6 +170,50 @@ public class BasicLibraryTests
 		Assert.IsType<LuaNil>(result.First);
 	}
 
+	// ── is_async() ─────────────────────────────────────────────────
+
+	[Fact]
+	public void IsAsync_AsyncNativeFunction_ReturnsTrue()
+	{
+		var state = CreateState();
+		var result = state.Execute("return is_async(async function() end)");
+		Assert.Equal(LuaBoolean.True, Assert.IsType<LuaBoolean>(result.First));
+	}
+
+	[Fact]
+	public void IsAsync_SyncNativeFunction_ReturnsFalse()
+	{
+		var state = CreateState();
+		var result = state.Execute("return is_async(function() end)");
+		Assert.Equal(LuaBoolean.False, Assert.IsType<LuaBoolean>(result.First));
+	}
+
+	[Fact]
+	public void IsAsync_AsyncCallbackFunction_ReturnsTrue()
+	{
+		var state = CreateState();
+		state.SetGlobal("func", new LuaCallbackFunction((ctx, args) => new LuaTuple(LuaNil.Instance), isAsync: true));
+		var result = state.Execute("return is_async(func)");
+		Assert.Equal(LuaBoolean.True, Assert.IsType<LuaBoolean>(result.First));
+	}
+
+	[Fact]
+	public void IsAsync_SyncCallbackFunction_ReturnsFalse()
+	{
+		var state = CreateState();
+		state.SetGlobal("func", new LuaCallbackFunction((ctx, args) => new LuaTuple(LuaNil.Instance), isAsync: false));
+		var result = state.Execute("return is_async(func)");
+		Assert.Equal(LuaBoolean.False, Assert.IsType<LuaBoolean>(result.First));
+	}
+
+	[Fact]
+	public void IsAsync_NotAFunction_ReturnsNil()
+	{
+		var state = CreateState();
+		var result = state.Execute("return is_async(42)");
+		Assert.IsType<LuaNil>(result.First);
+	}
+
 	// ── assert() ───────────────────────────────────────────────────
 
 	[Fact]
@@ -203,7 +247,7 @@ public class BasicLibraryTests
 		var state = CreateState();
 		var ex = Assert.Throws<LuaRuntimeException>(() =>
 			state.Execute("assert(false, 'my custom error')"));
-		Assert.Contains("my custom error", ex.Message);
+		Assert.Contains("my custom error", ex.OriginalMessage);
 	}
 
 	[Fact]
@@ -241,7 +285,7 @@ public class BasicLibraryTests
 	{
 		var state = CreateState();
 		var result = state.Execute("return select()");
-		Assert.Equal(0, result.Count);
+		Assert.Empty(result);
 	}
 
 	[Fact]

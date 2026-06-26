@@ -24,11 +24,11 @@ public class AsyncCompilerIntegrationTests
 	public async Task AsyncFunction_Declaration_CompilesAndRuns()
 	{
 		var result = await CompileAndExecuteAsync(@"
-            async function compute()
-                return 42
-            end
-            return await compute()
-        ");
+			async function compute()
+				return 42
+			end
+			return await compute()
+		");
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -36,11 +36,11 @@ public class AsyncCompilerIntegrationTests
 	public async Task AsyncFunction_WithParameters_Works()
 	{
 		var result = await CompileAndExecuteAsync(@"
-            async function multiply(a, b)
-                return a * b
-            end
-            return await multiply(6, 7)
-        ");
+			async function multiply(a, b)
+				return a * b
+			end
+			return await multiply(6, 7)
+		");
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -48,11 +48,11 @@ public class AsyncCompilerIntegrationTests
 	public async Task AsyncFunction_LocalDeclaration_Works()
 	{
 		var result = await CompileAndExecuteAsync(@"
-            local async function double(x)
-                return x * 2
-            end
-            return await double(21)
-        ");
+			local async function double(x)
+				return x * 2
+			end
+			return await double(21)
+		");
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -68,13 +68,13 @@ public class AsyncCompilerIntegrationTests
 		var barrier2 = new TaskCompletionSource<bool>();
 
 		var state = new LuaState();
-		state.Register("fetch1", new LuaCallbackFunction(
+		state.SetGlobal("fetch1", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await barrier1.Task;
 				return new LuaTuple(new LuaNumber(100));
 			})));
-		state.Register("fetch2", new LuaCallbackFunction(
+		state.SetGlobal("fetch2", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await barrier2.Task;
@@ -85,12 +85,12 @@ public class AsyncCompilerIntegrationTests
 
 		// Lua code: call both async functions without awaiting.
 		var code = @"
-            local task1 = fetch1()
-            local task2 = fetch2()
-            _G['t1'] = task1
-            _G['t2'] = task2
-            return await task1, await task2
-        ";
+			local task1 = fetch1()
+			local task2 = fetch2()
+			_G['t1'] = task1
+			_G['t2'] = task2
+			return await task1, await task2
+		";
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
@@ -123,18 +123,43 @@ public class AsyncCompilerIntegrationTests
 	}
 
 	[Fact]
+	public async Task Await_WithDelay_Works()
+	{
+		var state = new LuaState();
+		state.SetGlobal("delay", new LuaCallbackFunction(
+			async (ctx, args) =>
+			{
+				double ms = 0;
+				if (args.Length > 0) args[0].TryToNumber(out ms);
+				var task = new LuaTask();
+				await Task.Delay((int)ms);
+				return new LuaTuple(new LuaNumber(ms));
+			}, "delay"));
+
+		var result = await CompileAndExecuteAsync(@"
+			local t1 = delay(10)
+			local t2 = delay(20)
+			local r1 = await t1
+			local r2 = await t2
+			return r1 + r2
+		", state);
+
+		Assert.Equal(30.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
 	public async Task Await_ReturnsSingleValue()
 	{
 		var state = new LuaState();
-		state.Register("getNumber", new LuaCallbackFunction(
+		state.SetGlobal("getNumber", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 			{
 				return Task.FromResult(new LuaTuple(new LuaNumber(42)));
 			})));
 
 		var result = await CompileAndExecuteAsync(@"
-            return await getNumber()
-        ", state);
+			return await getNumber()
+		", state);
 
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
@@ -147,7 +172,7 @@ public class AsyncCompilerIntegrationTests
 	public async Task AwaitExpression_InAssignment_Works()
 	{
 		var state = new LuaState();
-		state.Register("delayed", new LuaCallbackFunction(
+		state.SetGlobal("delayed", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(10);
@@ -155,9 +180,9 @@ public class AsyncCompilerIntegrationTests
 			})));
 
 		var result = await CompileAndExecuteAsync(@"
-            local x = await delayed()
-            return x
-        ", state);
+			local x = await delayed()
+			return x
+		", state);
 
 		Assert.Equal(77.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
@@ -166,13 +191,13 @@ public class AsyncCompilerIntegrationTests
 	public async Task AwaitExpression_InArithmetic_Works()
 	{
 		var state = new LuaState();
-		state.Register("getValue", new LuaCallbackFunction(
+		state.SetGlobal("getValue", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(21))))));
 
 		var result = await CompileAndExecuteAsync(@"
-            return await getValue() * 2
-        ", state);
+			return await getValue() * 2
+		", state);
 
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
@@ -187,13 +212,13 @@ public class AsyncCompilerIntegrationTests
 		var state = new LuaState();
 
 		var result = await CompileAndExecuteAsync(@"
-            local obj = {}
-            local value = 0
-            lock obj do
-                value = 42
-            end
-            return value
-        ", state);
+			local obj = {}
+			local value = 0
+			lock obj do
+				value = 42
+			end
+			return value
+		", state);
 
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
@@ -202,16 +227,16 @@ public class AsyncCompilerIntegrationTests
 	public async Task Lock_Nested_Works()
 	{
 		var result = await CompileAndExecuteAsync(@"
-            local a = {}
-            local b = {}
-            local x = 0
-            lock a do
-                lock b do
-                    x = 99
-                end
-            end
-            return x
-        ");
+			local a = {}
+			local b = {}
+			local x = 0
+			lock a do
+				lock b do
+					x = 99
+				end
+			end
+			return x
+		");
 		Assert.Equal(99.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -220,12 +245,12 @@ public class AsyncCompilerIntegrationTests
 	{
 		// Lock should be released even if return happens inside the block.
 		var result = await CompileAndExecuteAsync(@"
-            local obj = {}
-            lock obj do
-                return 42
-            end
-            return 0
-        ");
+			local obj = {}
+			lock obj do
+				return 42
+			end
+			return 0
+		");
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
@@ -239,21 +264,21 @@ public class AsyncCompilerIntegrationTests
 		var state = new LuaState();
 
 		// Sync function.
-		state.Register("add", LuaCallbackFunction.From(
+		state.SetGlobal("add", LuaCallbackFunction.From(
 			(LuaValue[] args) => new LuaNumber(
 				((LuaNumber)args[0]).Value + ((LuaNumber)args[1]).Value)));
 
 		// Async function.
-		state.Register("multiply", new LuaCallbackFunction(
+		state.SetGlobal("multiply", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(
 					((LuaNumber)args[0]).Value * ((LuaNumber)args[1]).Value))))));
 
 		var result = await CompileAndExecuteAsync(@"
-            local sum = add(10, 32)
-            local product = await multiply(6, 7)
-            return sum, product
-        ", state);
+			local sum = add(10, 32)
+			local product = await multiply(6, 7)
+			return sum, product
+		", state);
 
 		Assert.Equal(2, result.Count);
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result[0]).Value);  // 10 + 32
@@ -279,7 +304,7 @@ public class AsyncCompilerIntegrationTests
 			}
 
 			var state = new LuaState();
-			state.Register("delayed", new LuaCallbackFunction(
+			state.SetGlobal("delayed", new LuaCallbackFunction(
 				new LuaCallbackFunction.AsyncCallbackDelegate(DelayedFunc)));
 
 			var ctx = state.CreateContext();
@@ -314,23 +339,23 @@ public class AsyncCompilerIntegrationTests
 		}
 
 		await Execute(@"
-            local t1 = delayed(10)
-            local t2 = delayed(20)
-            _G['t1'] = t1
-            _G['t2'] = t2
-            local r1 = await t1
-            local r2 = await t2
-            return r1, r2
-        ");
+			local t1 = delayed(10)
+			local t2 = delayed(20)
+			_G['t1'] = t1
+			_G['t2'] = t2
+			local r1 = await t1
+			local r2 = await t2
+			return r1, r2
+		");
 
 		/*await Execute(@"
-            local t1 = delayed(10)
-            local t2 = delayed(20)
-            _G['t1'] = t1
-            _G['t2'] = t2
-            local a1, a2 = await t1, t2
-            return a1, a2
-        ");*/
+			local t1 = delayed(10)
+			local t2 = delayed(20)
+			_G['t1'] = t1
+			_G['t2'] = t2
+			local a1, a2 = await t1, t2
+			return a1, a2
+		");*/
 	}
 
 	// ═══════════════════════════════════════════════════════════════
@@ -342,7 +367,7 @@ public class AsyncCompilerIntegrationTests
 	{
 		var state = new LuaState();
 
-		state.Register("fetchUser", new LuaCallbackFunction(
+		state.SetGlobal("fetchUser", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await Task.Delay(10);
@@ -353,18 +378,18 @@ public class AsyncCompilerIntegrationTests
 			})));
 
 		var result = await CompileAndExecuteAsync(@"
-            local cache = {}
-            
-            async function getUser(id)
-                if cache[id] == nil then
-                    cache[id] = await fetchUser(id)
-                end
-                return cache[id]
-            end
-            
-            local user = await getUser(1)
-            return user.name, user.age
-        ", state);
+			local cache = {}
+			
+			async function getUser(id)
+				if cache[id] == nil then
+					cache[id] = await fetchUser(id)
+				end
+				return cache[id]
+			end
+			
+			local user = await getUser(1)
+			return user.name, user.age
+		", state);
 
 		Assert.Equal(2, result.Count);
 		Assert.Equal("Alice", Assert.IsType<LuaString>(result[0]).Value);
@@ -379,14 +404,14 @@ public class AsyncCompilerIntegrationTests
 	public async Task AsyncFunction_CallingAsyncCallback_Works()
 	{
 		var state = new LuaState();
-		state.Register("getAnswer", new LuaCallbackFunction(
+		state.SetGlobal("getAnswer", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(42))))));
 
 		// Call async C# callback directly (not wrapped in async Lua function).
 		var result = await CompileAndExecuteAsync(@"
-            return await getAnswer()
-        ", state);
+			return await getAnswer()
+		", state);
 
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
@@ -395,22 +420,22 @@ public class AsyncCompilerIntegrationTests
 	public async Task AsyncFunction_ChainedAwait_Works()
 	{
 		var state = new LuaState();
-		state.Register("step1", new LuaCallbackFunction(
+		state.SetGlobal("step1", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(10))))));
-		state.Register("step2", new LuaCallbackFunction(
+		state.SetGlobal("step2", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(
 					((LuaNumber)args[0]).Value * 3))))));
 
 		var result = await CompileAndExecuteAsync(@"
-            async function pipeline()
-                local a = await step1()
-                local b = await step2(a)
-                return b + 12
-            end
-            return await pipeline()
-        ", state);
+			async function pipeline()
+				local a = await step1()
+				local b = await step2(a)
+				return b + 12
+			end
+			return await pipeline()
+		", state);
 
 		// step1 → 10, step2(10) → 30, +12 → 42
 		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
@@ -427,13 +452,13 @@ public class AsyncCompilerIntegrationTests
 		var barrier2 = new TaskCompletionSource<bool>();
 
 		var state = new LuaState();
-		state.Register("task1", new LuaCallbackFunction(
+		state.SetGlobal("task1", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await barrier1.Task;
 				return new LuaTuple(new LuaNumber(10));
 			})));
-		state.Register("task2", new LuaCallbackFunction(
+		state.SetGlobal("task2", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(async (ctx, args) =>
 			{
 				await barrier2.Task;
@@ -442,10 +467,10 @@ public class AsyncCompilerIntegrationTests
 
 		var ctx = state.CreateContext();
 		var code = @"
-            await task1(), task2()
-            _G['done_t1'] = 'yes'
-            return 42
-        ";
+			await task1(), task2()
+			_G['done_t1'] = 'yes'
+			return 42
+		";
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
@@ -476,17 +501,17 @@ public class AsyncCompilerIntegrationTests
 	public async Task Await_MultipleTasks_Return_FirstOfFirst_AllOfLast()
 	{
 		var state = new LuaState();
-		state.Register("first", new LuaCallbackFunction(
+		state.SetGlobal("first", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(1), new LuaNumber(2), new LuaNumber(3))))));
-		state.Register("second", new LuaCallbackFunction(
+		state.SetGlobal("second", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(4), new LuaNumber(5))))));
 
 		// return await first(), await second() → returns first of first, all of second
 		var result = await CompileAndExecuteAsync(@"
-            return await first(), await second()
-        ", state);
+			return await first(), await second()
+		", state);
 
 		// first() first result = 1, second() all results = 4, 5
 		Assert.Equal(3, result.Count);
@@ -499,19 +524,19 @@ public class AsyncCompilerIntegrationTests
 	public async Task Await_MultipleTasks_Assignment_EachGetsFirstResult()
 	{
 		var state = new LuaState();
-		state.Register("getA", new LuaCallbackFunction(
+		state.SetGlobal("getA", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(10), new LuaNumber(99))))));
-		state.Register("getB", new LuaCallbackFunction(
+		state.SetGlobal("getB", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(20), new LuaNumber(88))))));
 
 		// Each await gives only its first value to the local.
 		var result = await CompileAndExecuteAsync(@"
-            local a = await getA()
-            local b = await getB()
-            return a, b
-        ", state);
+			local a = await getA()
+			local b = await getB()
+			return a, b
+		", state);
 
 		Assert.Equal(2, result.Count);
 		Assert.Equal(10.0, Assert.IsType<LuaNumber>(result[0]).Value);
@@ -531,14 +556,14 @@ public class AsyncCompilerIntegrationTests
 		}
 
 		var state = new LuaState();
-		state.Register("slow", new LuaCallbackFunction(
+		state.SetGlobal("slow", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(DelayedTask)));
 
 		var ctx = state.CreateContext();
 		var code = @"
-            await slow(1), slow(2), slow(3)
-            return 42
-        ";
+			await slow(1), slow(2), slow(3)
+			return 42
+		";
 
 		var parser = new AsyncLuaParser();
 		var block = parser.Parse(code);
@@ -562,19 +587,19 @@ public class AsyncCompilerIntegrationTests
 	public async Task Await_SingleTask_ThenMultiple_Works()
 	{
 		var state = new LuaState();
-		state.Register("getX", new LuaCallbackFunction(
+		state.SetGlobal("getX", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(10))))));
-		state.Register("getY", new LuaCallbackFunction(
+		state.SetGlobal("getY", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate((ctx, args) =>
 				Task.FromResult(new LuaTuple(new LuaNumber(20))))));
 
 		// Single await first, then multi-await.
 		var result = await CompileAndExecuteAsync(@"
-            local x = await getX()
-            await getX(), getY()
-            return x
-        ", state);
+			local x = await getX()
+			await getX(), getY()
+			return x
+		", state);
 
 		Assert.Equal(10.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}

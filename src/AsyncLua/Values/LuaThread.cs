@@ -29,8 +29,8 @@ namespace AsyncLua.Values
 	///     local x = await coroutine.yield(10)
 	///     return x + 20
 	/// end)
-	/// local ok, y = coroutine.resume(co)     -- y = 10
-	/// local ok, r = coroutine.resume(co, 100) -- r = 120
+	/// local ok, y =await  coroutine.resume(co)     -- y = 10
+	/// local ok, r = await coroutine.resume(co, 100) -- r = 120
 	/// </code>
 	/// </para>
 	/// </remarks>

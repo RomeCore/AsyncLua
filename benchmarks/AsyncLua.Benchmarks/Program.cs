@@ -140,7 +140,7 @@ public class FunctionCallBenchmarks
     public void Setup()
     {
         _asyncLuaState = new LuaState();
-        _asyncLuaState.Register("add", new LuaCallbackFunction(
+        _asyncLuaState.SetGlobal("add", new LuaCallbackFunction(
             (ctx, args) =>
             {
                 double a = 0, b = 0;
@@ -286,8 +286,8 @@ public class ConcurrentBenchmarks
     private LuaState _asyncLuaState = null!;
 
     private const string AsyncScript = @"
-local t1 = delay(10)
-local t2 = delay(20)
+local t1 = delay(35)
+local t2 = delay(45)
 local r1 = await t1
 local r2 = await t2
 return r1 + r2
@@ -298,21 +298,17 @@ return r1 + r2
     {
         _asyncLuaState = new LuaState();
 
-        // Register a delay function that returns a LuaTask
-        _asyncLuaState.Register("delay", new LuaCallbackFunction(
-            async (ctx, args) =>
-            {
-                double ms = 0;
-                if (args.Length > 0) args[0].TryToNumber(out ms);
-                var task = new LuaTask();
-                _ = Task.Run(async () =>
-                {
-                    await Task.Delay((int)ms);
-                    task.SetResult(new LuaTuple(new LuaNumber(ms)));
-                });
-                return new LuaTuple(task);
-            }, "delay"));
-    }
+		// Register a delay function that returns a LuaTask
+		_asyncLuaState.SetGlobal("delay", new LuaCallbackFunction(
+			async (ctx, args) =>
+			{
+				double ms = 0;
+				if (args.Length > 0) args[0].TryToNumber(out ms);
+				var task = new LuaTask();
+				await Task.Delay((int)ms);
+				return new LuaTuple(new LuaNumber(ms));
+			}, "delay"));
+	}
 
     /// <summary>
     /// Executes two concurrent delays via async/await.

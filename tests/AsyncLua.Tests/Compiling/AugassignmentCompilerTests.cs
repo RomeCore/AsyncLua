@@ -257,7 +257,7 @@ public class AugassignmentCompilerTests
 	public async Task AddAssign_WithAsyncExpression()
 	{
 		var state = new LuaState();
-		state.Register("getValue", new LuaCallbackFunction(
+		state.SetGlobal("getValue", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(
 				(ctx, args) => Task.FromResult(new LuaTuple(new LuaNumber(5))))));
 
@@ -274,7 +274,7 @@ public class AugassignmentCompilerTests
 	public async Task MulAssign_WithAsyncExpression_OnTable()
 	{
 		var state = new LuaState();
-		state.Register("getValue", new LuaCallbackFunction(
+		state.SetGlobal("getValue", new LuaCallbackFunction(
 			new LuaCallbackFunction.AsyncCallbackDelegate(
 				(ctx, args) => Task.FromResult(new LuaTuple(new LuaNumber(7))))));
 

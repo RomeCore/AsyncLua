@@ -44,15 +44,16 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="callback">The delegate to invoke when this function is called.</param>
 		/// <param name="name">An optional display name for debugging.</param>
+		/// <param name="isAsync">Indicates whether the function is asynchronous.</param>
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="callback"/> is <see langword="null"/>.
 		/// </exception>
-		public LuaCallbackFunction(CallbackDelegate callback, string? name = null)
+		public LuaCallbackFunction(CallbackDelegate callback, string? name = null, bool isAsync = false)
 		{
 			_callback = callback is null ? throw new ArgumentNullException(nameof(callback)) :
 				new AsyncCallbackDelegate((ctx, args) => Task.FromResult(callback(ctx, args)));
 			_name = name;
-			IsAsync = false;
+			IsAsync = isAsync;
 
 		}
 
@@ -61,18 +62,19 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="callback">The delegate to invoke when this function is called.</param>
 		/// <param name="name">An optional display name for debugging.</param>
+		/// <param name="isAsync">Indicates whether the function is asynchronous.</param>
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="callback"/> is <see langword="null"/>.
 		/// </exception>
-		public LuaCallbackFunction(AsyncCallbackDelegate callback, string? name = null)
+		public LuaCallbackFunction(AsyncCallbackDelegate callback, string? name = null, bool isAsync = true)
 		{
 			_callback = callback ?? throw new ArgumentNullException(nameof(callback));
 			_name = name;
-			IsAsync = true;
+			IsAsync = isAsync;
 		}
 
 		/// <inheritdoc />
-		public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, LuaValue[] args)
+		public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, params LuaValue[] args)
 		{
 			return _callback(context, args);
 		}
