@@ -753,7 +753,7 @@ namespace AsyncLua.Compiling
 				throw new CompilerException("<continue> statement outside of a loop.");
 
 			var loop = _loopStack.Peek();
-			EmitJMP_Label(loop.ContinueLabel);
+			EmitJMP_To(loop.ContinueLabel);
 		}
 
 		// ── Goto / Label ────────────────────────────────────────────────
