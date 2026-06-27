@@ -90,7 +90,10 @@ namespace AsyncLua.Values
 			return ud;
 		}
 
-		public static T? ToClrObject<T>(LuaValue value)
+		/// <summary>
+		/// Converts a <see cref="LuaValue"/> back to a CLR <typeparamref name="T"/>.
+		/// </summary>
+		public static T? ToClrObject<T>(this LuaValue value)
 		{
 			if (ToClrObject(value, typeof(T)) is T result)
 				return result;
@@ -100,7 +103,7 @@ namespace AsyncLua.Values
 		/// <summary>
 		/// Converts a <see cref="LuaValue"/> back to a CLR <see cref="object"/> of the specified target type.
 		/// </summary>
-		public static object? ToClrObject(LuaValue value, Type targetType)
+		public static object? ToClrObject(this LuaValue value, Type targetType)
 		{
 			if (value is LuaNil)
 				return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;

@@ -15,6 +15,8 @@ namespace AsyncLua.Values
 		/// </summary>
 		public static readonly LuaNil Instance = new LuaNil();
 
+		public override LuaMetatable? Metatable { get => null; set => throw new LuaRuntimeException("Cannot change the metatable of nil."); }
+
 		private LuaNil() { }
 
 		/// <inheritdoc />

@@ -30,6 +30,21 @@ namespace AsyncLua
 		private readonly InterpreterSettings _interpreterSettings;
 
 		/// <summary>
+		/// Gets the parser used by this Lua state to parse Lua code.
+		/// </summary>
+		public AsyncLuaParser Parser => _parser;
+
+		/// <summary>
+		/// Gets the compiler settings used by this Lua state to compile Lua code.
+		/// </summary>
+		public CompilerSettings CompilerSettings => _compilerSettings;
+
+		/// <summary>
+		/// Gets the interpreter settings used by this Lua state to execute compiled Lua bytecode.
+		/// </summary>
+		public InterpreterSettings InterpreterSettings => _interpreterSettings;
+
+		/// <summary>
 		/// Gets the global environment table (_G) for this Lua state.
 		/// </summary>
 		public LuaTable Globals { get; }
@@ -69,13 +84,14 @@ namespace AsyncLua
 		/// Initialises a new instance of the <see cref="LuaState"/> class
 		/// with an empty global table and provided settings.
 		/// </summary>
-		public LuaState(AsyncLuaParser? parser, CompilerSettings? compilerSettings, InterpreterSettings? interpreterSettings)
+		public LuaState(LuaTable? globals = null, AsyncLuaParser? parser = null,
+			CompilerSettings? compilerSettings = null, InterpreterSettings? interpreterSettings = null)
 		{
 			_parser = parser ?? _defaultParser;
-			_compilerSettings = compilerSettings ?? new CompilerSettings();
-			_interpreterSettings = interpreterSettings ?? new InterpreterSettings();
+			_compilerSettings = compilerSettings?.Clone() ?? new CompilerSettings();
+			_interpreterSettings = interpreterSettings?.Clone() ?? new InterpreterSettings();
 
-			Globals = new LuaTable();
+			Globals = globals?.DeepClone() ?? new LuaTable();
 			// Standard Lua: _G references the global table itself.
 			Globals.Set(new LuaString("_G"), Globals);
 		}

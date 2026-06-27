@@ -821,31 +821,19 @@ public class MetatableInterpreterTests
 	}
 
 	[Fact]
-	public void Advanced_Aggressive_MetatableOnBoolean_Add()
+	public void Advanced_Aggressive_MetatableOnBoolean_Throws()
 	{
-		// In Aggressive mode, even booleans can have __add.
-		var result = CompileAndExecute(@"
-			local mt = {
-				__add = function(a, b) return 'bool_add' end
-			}
-			setmetatable(true, mt)
-			return true + false
-		", MetatableMode.Aggressive);
-		Assert.Equal("bool_add", Assert.IsType<LuaString>(result.First).Value);
-	}
-
-	[Fact]
-	public void Advanced_Aggressive_MetatableOnBoolean_Eq()
-	{
-		// In Aggressive mode, __eq on booleans.
-		var result = CompileAndExecute(@"
-			local mt = {
-				__eq = function(a, b) return true end
-			}
-			setmetatable(true, mt)
-			return true == false
-		", MetatableMode.Aggressive);
-		Assert.Equal(LuaBoolean.True, result.First);
+		// Literal types cannot have metatables
+		Assert.Throws<LuaRuntimeException>(() =>
+		{
+			CompileAndExecute(@"
+				local mt = {
+					__add = function(a, b) return 'bool_add' end
+				}
+				setmetatable(true, mt)
+				return true + false
+			", MetatableMode.Aggressive);
+		});
 	}
 
 	[Fact]
@@ -972,22 +960,22 @@ public class MetatableInterpreterTests
 	}
 
 	[Fact]
-	public void Advanced_Aggressive_Eq_ThreeTypes()
+	public void Advanced_Aggressive_Boolean_ThrowsOnChange()
 	{
-		// __eq that makes string, number, and boolean all comparable.
-		var result = CompileAndExecute(@"
-			local mtAll = {
-				__eq = function(a, b) return tostring(a) == tostring(b) end
-			}
-			local s = 'true'
-			local b = true
-			setmetatable(s, mtAll)
-			setmetatable(b, mtAll)
-			return s == b, s == 'true', b == true
-		", MetatableMode.Aggressive);
-		Assert.Equal(LuaBoolean.True, result[0]);   // 'true' == true → 'true' == 'true' → true
-		Assert.Equal(LuaBoolean.True, result[1]);   // 'true' == 'true' → raw string eq → true
-		Assert.Equal(LuaBoolean.True, result[2]);   // true == true → raw bool eq → true
+		// Literal types cannot have metatables
+		Assert.Throws<LuaRuntimeException>(() =>
+		{
+			var result = CompileAndExecute(@"
+				local mtAll = {
+					__eq = function(a, b) return tostring(a) == tostring(b) end
+				}
+				local s = 'true'
+				local b = true
+				setmetatable(s, mtAll)
+				setmetatable(b, mtAll)
+				return s == b, s == 'true', b == true
+			", MetatableMode.Aggressive);
+		});
 	}
 
 	[Fact]

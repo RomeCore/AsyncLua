@@ -1,3 +1,5 @@
+using AsyncLua.Compiling;
+
 namespace AsyncLua.Interpreting
 {
 	/// <summary>
@@ -15,5 +17,14 @@ namespace AsyncLua.Interpreting
 		/// Maximum call stack depth. Defaults to <see cref="AsyncLuaInterpreter.DefaultMaxStackSize"/>.
 		/// </summary>
 		public int MaxStackSize { get; set; } = AsyncLuaInterpreter.DefaultMaxStackSize;
+
+		public InterpreterSettings Clone()
+		{
+			return new InterpreterSettings
+			{
+				MetatableMode = this.MetatableMode,
+				MaxStackSize = this.MaxStackSize,
+			};
+		}
 	}
 }

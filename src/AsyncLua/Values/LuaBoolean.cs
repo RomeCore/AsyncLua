@@ -26,6 +26,8 @@ namespace AsyncLua.Values
 		/// </summary>
 		public bool Value { get; }
 
+		public override LuaMetatable? Metatable { get => null; set => throw new LuaRuntimeException("Cannot change the metatable of boolean."); }
+
 		private LuaBoolean(bool value)
 		{
 			Value = value;
