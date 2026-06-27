@@ -139,7 +139,31 @@ namespace AsyncLua
 			if (lastDotIndex != -1)
 				table = table.ResolveNamespace(name.Substring(0, lastDotIndex));
 
-			table.Set(new LuaString(name), value);
+			table.Set(name, value);
+		}
+
+		/// <summary>
+		/// Sets a Lua object in the global environment under the specified name.
+		/// </summary>
+		/// <param name="name">The global variable name optionally separated by dots to access nested tables or modules (e.g., "print", "web.http_get", "math.pi").</param>
+		/// <param name="value">The value to set.</param>
+		/// <exception cref="ArgumentNullException">
+		/// Thrown if <paramref name="name"/> or <paramref name="value"/> is <see langword="null"/>.
+		/// </exception>
+		public void SetGlobal(string name, object? value)
+		{
+			if (name is null)
+				throw new ArgumentNullException(nameof(name));
+			if (value is null)
+				throw new ArgumentNullException(nameof(value));
+
+			var table = Globals;
+
+			int lastDotIndex = name.LastIndexOf('.');
+			if (lastDotIndex != -1)
+				table = table.ResolveNamespace(name.Substring(0, lastDotIndex));
+
+			table.Set(name, value);
 		}
 
 		/// <summary>
@@ -155,7 +179,39 @@ namespace AsyncLua
 			if (lastDotIndex != -1)
 				table = table.ResolveNamespace(name.Substring(0, lastDotIndex));
 
-			return table.Get(new LuaString(name));
+			return table.Get(name);
+		}
+
+		/// <summary>
+		/// Retrieves a value from the global environment.
+		/// </summary>
+		/// <param name="name">The global variable name optionally separated by dots to access nested tables or modules (e.g., "web.http_get", "math.pi").</param>
+		/// <returns>The stored value, or <c>default</c> if not found.</returns>
+		public object? GetGlobal(string name, Type targetType)
+		{
+			var table = Globals;
+
+			int lastDotIndex = name.LastIndexOf('.');
+			if (lastDotIndex != -1)
+				table = table.ResolveNamespace(name.Substring(0, lastDotIndex));
+
+			return table.Get(name).ToClrObject(targetType);
+		}
+
+		/// <summary>
+		/// Retrieves a value from the global environment.
+		/// </summary>
+		/// <param name="name">The global variable name optionally separated by dots to access nested tables or modules (e.g., "web.http_get", "math.pi").</param>
+		/// <returns>The stored value, or <c>default</c> if not found.</returns>
+		public T? GetGlobal<T>(string name)
+		{
+			var table = Globals;
+
+			int lastDotIndex = name.LastIndexOf('.');
+			if (lastDotIndex != -1)
+				table = table.ResolveNamespace(name.Substring(0, lastDotIndex));
+
+			return table.Get<T>(name);
 		}
 
 		/// <summary>

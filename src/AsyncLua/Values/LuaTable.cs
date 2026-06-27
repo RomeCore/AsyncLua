@@ -169,7 +169,7 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="key">The CLR object key, will be converted to <see cref="LuaValue"/> the best possible way.</param>
 		/// <param name="value">The value to store, or <c>null</c> to remove.</param>
-		public void Set<T>(object key, LuaValue value) => Set(LuaValueConverter.ToLuaValue(key), value);
+		public void Set(object key, LuaValue value) => Set(LuaValueConverter.ToLuaValue(key), value);
 
 		/// <summary>
 		/// Stores a value at the specified string key.
@@ -225,28 +225,28 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="key">The CLR object key.</param>
 		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
-		public void Set<T>(object key, object value) => Set(LuaValueConverter.ToLuaValue(key), LuaValueConverter.ToLuaValue(value));
+		public void Set(object key, object value) => Set(LuaValueConverter.ToLuaValue(key), LuaValueConverter.ToLuaValue(value));
 
 		/// <summary>
 		/// Stores a value at the specified string key. Passing a <c>null</c> value removes the key.
 		/// </summary>
 		/// <param name="key">The string key.</param>
 		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
-		public void Set<T>(string key, object value) => Set((LuaString)key, LuaValueConverter.ToLuaValue(value));
+		public void Set(string key, object value) => Set((LuaString)key, LuaValueConverter.ToLuaValue(value));
 
 		/// <summary>
 		/// Stores a value at the specified integer index (1-based). Passing a <c>null</c> value removes the key.
 		/// </summary>
 		/// <param name="index">The 1-based integer index.</param>
 		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
-		public void Set<T>(int index, object value) => Set((LuaNumber)index, LuaValueConverter.ToLuaValue(value));
+		public void Set(int index, object value) => Set((LuaNumber)index, LuaValueConverter.ToLuaValue(value));
 
 		/// <summary>
 		/// Stores a value under the specified key. Passing a <c>null</c> value removes the key.
 		/// </summary>
 		/// <param name="key">The key. Must not be <c>nil</c>.</param>
 		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
-		public void Set<T>(LuaValue key, object value) => Set(key, LuaValueConverter.ToLuaValue(value));
+		public void Set(LuaValue key, object value) => Set(key, LuaValueConverter.ToLuaValue(value));
 
 		/// <summary>
 		/// Appends a value to the table, as if it were an array. The new index will be one greater than the current length.
