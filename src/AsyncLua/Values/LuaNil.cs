@@ -50,6 +50,13 @@ namespace AsyncLua.Values
 		public override int GetHashCode() => 0;
 
 		/// <inheritdoc />
+		public override bool TryToString(out string value)
+		{
+			value = null!;
+			return false;
+		}
+
+		/// <inheritdoc />
 		/// <returns><see langword="false"/> — <c>nil</c> is always falsy.</returns>
 		public override bool ToBoolean() => false;
 	}

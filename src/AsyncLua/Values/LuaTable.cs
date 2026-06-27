@@ -62,10 +62,22 @@ namespace AsyncLua.Values
 		// ── Indexer ──────────────────────────────────────────────────────
 
 		/// <summary>
-		/// Gets or sets the value at the specified integer index (1-based).
+		/// Gets or sets the value at the specified CLR object key.
 		/// This is a convenience wrapper around <see cref="this[LuaValue]"/>.
 		/// </summary>
-		/// <param name="index">The 1-based integer index.</param>
+		/// <param name="key">The CLR object key.</param>
+		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if the index is absent.</returns>
+		public LuaValue this[object key]
+		{
+			get => Get(key);
+			set => Set(key, value);
+		}
+
+		/// <summary>
+		/// Gets or sets the value at the specified string key.
+		/// This is a convenience wrapper around <see cref="this[LuaValue]"/>.
+		/// </summary>
+		/// <param name="key">The string key.</param>
 		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if the index is absent.</returns>
 		public LuaValue this[string key]
 		{
@@ -226,34 +238,34 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="key">The CLR object key.</param>
 		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
-		public void Set(object key, object value) => Set(LuaValueConverter.ToLuaValue(key), LuaValueConverter.ToLuaValue(value));
+		public void Set(object key, object? value) => Set(LuaValueConverter.ToLuaValue(key), LuaValueConverter.ToLuaValue(value));
 
 		/// <summary>
 		/// Stores a value at the specified string key. Passing a <c>null</c> value removes the key.
 		/// </summary>
 		/// <param name="key">The string key.</param>
 		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
-		public void Set(string key, object value) => Set((LuaString)key, LuaValueConverter.ToLuaValue(value));
+		public void Set(string key, object? value) => Set((LuaString)key, LuaValueConverter.ToLuaValue(value));
 
 		/// <summary>
 		/// Stores a value at the specified integer index (1-based). Passing a <c>null</c> value removes the key.
 		/// </summary>
 		/// <param name="index">The 1-based integer index.</param>
 		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
-		public void Set(int index, object value) => Set((LuaNumber)index, LuaValueConverter.ToLuaValue(value));
+		public void Set(int index, object? value) => Set((LuaNumber)index, LuaValueConverter.ToLuaValue(value));
 
 		/// <summary>
 		/// Stores a value under the specified key. Passing a <c>null</c> value removes the key.
 		/// </summary>
 		/// <param name="key">The key. Must not be <c>nil</c>.</param>
 		/// <param name="value">The value to store, will be converted to <see cref="LuaValue"/> the best possible way, or <c>null</c> to remove.</param>
-		public void Set(LuaValue key, object value) => Set(key, LuaValueConverter.ToLuaValue(value));
+		public void Set(LuaValue key, object? value) => Set(key, LuaValueConverter.ToLuaValue(value));
 
 		/// <summary>
 		/// Appends a value to the table, as if it were an array. The new index will be one greater than the current length.
 		/// </summary>
 		/// <param name="value">The value to append, will be converted to <see cref="LuaValue"/> the best possible way.</param>
-		public void Append(object value)
+		public void Append(object? value)
 		{
 			Append(LuaValueConverter.ToLuaValue(value));
 		}
@@ -365,18 +377,6 @@ namespace AsyncLua.Values
 				_cachedLength = CalculateLength();
 				return _cachedLength.Value;
 			}
-		}
-
-		/// <summary>
-		/// Attempts to get the length, returning <see langword="false"/> if the table is empty
-		/// (length is 0, which is truthy in Lua, so this provides Lua-compatible semantics).
-		/// </summary>
-		/// <param name="length">When this method returns, contains the table length.</param>
-		/// <returns><see langword="true"/> if the length is available (always <see langword="true"/>).</returns>
-		public bool TryGetLength(out int length)
-		{
-			length = Length;
-			return true;
 		}
 
 		// ── Properties ───────────────────────────────────────────────────

@@ -93,14 +93,36 @@ namespace AsyncLua.Values
 		}
 
 		/// <summary>
+		/// Attempts to convert this Lua value to a .NET <see cref="double"/>.
+		/// </summary>
+		/// <returns>Number value if conversion succeeded; otherwise, <see langword="null"/>.</returns>
+		public double? TryToNumber()
+		{
+			if (TryToNumber(out double result))
+				return result;
+			return null;
+		}
+
+		/// <summary>
 		/// Attempts to convert this Lua value to a .NET <see cref="string"/>.
 		/// </summary>
 		/// <param name="value">When this method returns, contains the converted value if successful.</param>
 		/// <returns><see langword="true"/> if conversion succeeded; otherwise, <see langword="false"/>.</returns>
 		public virtual bool TryToString(out string value)
 		{
-			value = ToString();
-			return true;
+			value = null!;
+			return false;
+		}
+
+		/// <summary>
+		/// Attempts to convert this Lua value to a .NET <see cref="string"/>.
+		/// </summary>
+		/// <returns>String value if conversion succeeded; otherwise, <see langword="null"/>.</returns>
+		public string? TryToString()
+		{
+			if (TryToString(out string result))
+				return result;
+			return null;
 		}
 
 		~LuaValue()

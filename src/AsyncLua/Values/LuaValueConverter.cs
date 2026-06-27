@@ -139,9 +139,6 @@ namespace AsyncLua.Values
 			if (value is LuaUserData ud)
 				return ud.Target;
 
-			if (value is LuaFunction)
-				return value;
-
 			return value;
 		}
 

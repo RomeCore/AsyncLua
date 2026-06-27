@@ -97,6 +97,13 @@ namespace AsyncLua.Values
 		}
 
 		/// <inheritdoc />
+		public override bool TryToString(out string value)
+		{
+			value = Value.ToString("G", CultureInfo.InvariantCulture);
+			return true;
+		}
+
+		/// <inheritdoc />
 		public int CompareTo(LuaNumber other)
 		{
 			if (other is null)
