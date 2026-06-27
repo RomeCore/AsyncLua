@@ -586,7 +586,9 @@ namespace AsyncLua.Compiling
 			EmitJMP_Label(loopEndLabel);
 
 			int bodyStart = _instructions.Count;
-			_loopStack.Push(new LoopContext(loopEndLabel, bodyStart));
+			int continueLabel = AllocateLabel();
+			MarkLabel(continueLabel); // 'continue' jumps here (start of body)
+			_loopStack.Push(new LoopContext(loopEndLabel, continueLabel));
 			CompileBlock(node.Body);
 			_loopStack.Pop();
 
@@ -600,8 +602,10 @@ namespace AsyncLua.Compiling
 		{
 			int loopStartIndex = _instructions.Count;
 			int loopEndLabel = AllocateLabel();
+			int continueLabel = AllocateLabel();
+			MarkLabel(continueLabel); // 'continue' jumps here (start of body)
 
-			_loopStack.Push(new LoopContext(loopEndLabel, loopStartIndex));
+			_loopStack.Push(new LoopContext(loopEndLabel, continueLabel));
 			CompileBlock(node.Body);
 			_loopStack.Pop();
 
@@ -641,12 +645,16 @@ namespace AsyncLua.Compiling
 
 			int bodyStart = _instructions.Count;
 			int loopEndLabel = AllocateLabel();
+			int continueLabel = AllocateLabel();
 
-			_loopStack.Push(new LoopContext(loopEndLabel, bodyStart));
+			_loopStack.Push(new LoopContext(loopEndLabel, continueLabel));
 			CompileBlock(node.Body);
 			_loopStack.Pop();
 
 			// Emit FORLOOP (jumps back to bodyStart) and patch FORPREP to jump here.
+			// Place continueLabel right before FORLOOP so that 'continue' jumps here
+			// and causes the loop variable to increment and the condition to be checked.
+			MarkLabel(continueLabel);
 			EmitFORLOOP(varReg, bodyStart);
 			PatchFORPREP(forprepIndex, _instructions.Count - 1); // patch to FORLOOP
 
@@ -711,18 +719,23 @@ namespace AsyncLua.Compiling
 			EmitTFORCALL(baseReg, (ushort)node.Variables.Length);
 
 			int loopEnd = AllocateLabel();
+			int continueLabel = AllocateLabel();
 
-			// Structure: TFORCALL, TFORLOOP, JMP_exit, body, JMP_back, loopEnd.
+			// Structure: TFORCALL, TFORLOOP, JMP_exit, body, continue-JMP_back, loopEnd.
 			// bodyStart = tforCall + 3 (TFORCALL + TFORLOOP + JMP_exit).
 			EmitTFORLOOP(baseReg, tforCall + 3);
 			EmitJMP_Label(loopEnd); // nil → skip body and back-jump, go straight to exit
 
 			int bodyStart = _instructions.Count;
 
-			_loopStack.Push(new LoopContext(loopEnd, bodyStart));
+			_loopStack.Push(new LoopContext(loopEnd, continueLabel));
 			CompileBlock(node.Body);
 			_loopStack.Pop();
 
+			// 'continue' jumps here (to the JMP back to TFORCALL).
+			// This causes the next iteration value to be fetched from the iterator,
+			// rather than re-executing the body with the same loop variables.
+			MarkLabel(continueLabel);
 			// Jump back to TFORCALL.
 			EmitJMP_To(tforCall);
 
@@ -753,7 +766,7 @@ namespace AsyncLua.Compiling
 				throw new CompilerException("<continue> statement outside of a loop.");
 
 			var loop = _loopStack.Peek();
-			EmitJMP_To(loop.ContinueLabel);
+			EmitJMP_Label(loop.ContinueLabel);
 		}
 
 		// ── Goto / Label ────────────────────────────────────────────────
