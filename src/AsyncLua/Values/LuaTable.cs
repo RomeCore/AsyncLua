@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography.X509Certificates;
 
 namespace AsyncLua.Values
 {
@@ -331,6 +332,15 @@ namespace AsyncLua.Values
 				return false;
 			}
 			return _entries.TryGetValue(key, out value);
+		}
+
+		/// <summary>
+		/// Clears all entries from the table.
+		/// </summary>
+		public void Clear()
+		{
+			_entries.Clear();
+			_cachedLength = null;
 		}
 
 		// ── Length (#) ───────────────────────────────────────────────────
