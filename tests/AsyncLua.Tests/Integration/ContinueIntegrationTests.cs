@@ -355,7 +355,7 @@ public class ContinueIntegrationTests(ITestOutputHelper output)
             async function test()
                 for i = 1, 5 do
                     if i == 3 then continue end
-                    await delay(1)
+                    await task.delay(1)
                     print(i)
                 end
             end
@@ -383,7 +383,7 @@ public class ContinueIntegrationTests(ITestOutputHelper output)
                 for i = 1, 4 do
                     lock mtx do
                         if i == 2 then continue end
-                        await delay(1)
+                        await task.delay(1)
                         print(i)
                     end
                 end

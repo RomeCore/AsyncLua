@@ -1,4 +1,6 @@
+using System.Text.RegularExpressions;
 using AsyncLua.Values;
+using Xunit.Abstractions;
 
 namespace AsyncLua.Tests.Libraries;
 
@@ -6,7 +8,7 @@ namespace AsyncLua.Tests.Libraries;
 /// Tests for <see cref="Libraries.BasicLibrary"/>: print, type, tostring,
 /// tonumber, error, assert, ipairs, pairs, next, select.
 /// </summary>
-public class BasicLibraryTests
+public class BasicLibraryTests(ITestOutputHelper output)
 {
 	private static LuaState CreateState()
 	{
@@ -441,5 +443,20 @@ public class BasicLibraryTests
 			end
 		");
 		Assert.Equal("caught: caught me", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	// ── other utilities ─────────────────────────────────────────────
+
+	[Fact]
+	public void Version_ShowsCorrectFormat()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			return _VERSION
+		");
+		var str = Assert.IsType<LuaString>(result.First).Value;
+		output.WriteLine(str);
+		var regex = new Regex(@"^AsyncLua \d+\.\d+(\.\d+(\.\d+)?)?$");
+		Assert.Matches(regex, str);
 	}
 }

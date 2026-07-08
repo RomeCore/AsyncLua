@@ -314,6 +314,54 @@ public class AdvancedIntegrationTests
 	// ═══════════════════════════════════════════════════════════════
 
 	[Fact]
+	public void EmptyCode_ReturnsEmptyTuple()
+	{
+		var state = CreateState();
+
+		var result = Execute(state, @"
+			
+		");
+
+		Assert.Empty(result);
+	}
+
+	[Fact]
+	public async Task EmptyCode_ReturnsEmptyTuple_Async()
+	{
+		var state = CreateState();
+
+		var result = await ExecuteAsync(state, @"
+			
+		");
+
+		Assert.Empty(result);
+	}
+
+	[Fact]
+	public void JustReturn_ReturnsEmptyTuple()
+	{
+		var state = CreateState();
+
+		var result = Execute(state, @"
+			return
+		");
+
+		Assert.Empty(result);
+	}
+
+	[Fact]
+	public async Task JustReturn_ReturnsEmptyTuple_Async()
+	{
+		var state = CreateState();
+
+		var result = await ExecuteAsync(state, @"
+			return
+		");
+
+		Assert.Empty(result);
+	}
+
+	[Fact]
 	public void QuickSort_FullImplementation_SortsCorrectly()
 	{
 		var state = CreateState();

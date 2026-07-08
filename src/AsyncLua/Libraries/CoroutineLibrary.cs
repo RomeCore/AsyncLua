@@ -18,9 +18,11 @@ namespace AsyncLua.Libraries
 	///   <item><description><c>coroutine.create(f)</c> — creates a suspended coroutine from a function.</description></item>
 	///   <item><description><c>coroutine.resume(co, ...)</c> — starts or resumes a coroutine (must be awaited!).</description></item>
 	///   <item><description><c>coroutine.yield(...)</c> — suspends the current coroutine (must be awaited!).</description></item>
-	///   <item><description><c>coroutine.status(co)</c> — returns "suspended", "running", or "dead".</description></item>
+	///   <item><description><c>coroutine.status(co)</c> — returns "suspended", "running", "normal" or "dead".</description></item>
 	///   <item><description><c>coroutine.wrap(f)</c> — returns an async function that resumes the coroutine.</description></item>
-	///   <item><description><c>coroutine.running()</c> — returns the currently running coroutine.</description></item>
+	///   <item><description><c>coroutine.running()</c> — returns the currently running coroutine and a boolean.</description></item>
+	///   <item><description><c>coroutine.isyieldable([co])</c> — checks whether a coroutine can yield.</description></item>
+	///   <item><description><c>coroutine.close(co)</c> — closes a coroutine, putting it in the dead state.</description></item>
 	/// </list>
 	/// <para>
 	/// <code>
@@ -60,6 +62,8 @@ namespace AsyncLua.Libraries
 			table.Set(new LuaString("wrap"), new LuaCallbackFunction(
 				new LuaCallbackFunction.AsyncCallbackDelegate(WrapAsync), "coroutine.wrap"));
 			table.Set(new LuaString("running"), new LuaCallbackFunction(Running, "coroutine.running"));
+			table.Set(new LuaString("isyieldable"), new LuaCallbackFunction(IsYieldable, "coroutine.isyieldable"));
+			table.Set(new LuaString("close"), new LuaCallbackFunction(Close, "coroutine.close"));
 		}
 
 		private static LuaTuple Create(LuaCallingContext ctx, LuaValue[] args)
@@ -105,6 +109,7 @@ namespace AsyncLua.Libraries
 			{
 				LuaThreadStatus.Suspended => "suspended",
 				LuaThreadStatus.Running => "running",
+				LuaThreadStatus.Normal => "normal",
 				LuaThreadStatus.Dead => "dead",
 				_ => "dead"
 			};
@@ -144,8 +149,64 @@ namespace AsyncLua.Libraries
 		{
 			var current = LuaThread.Current.Value;
 			if (current == null)
+			{
+				// No coroutine is running; return nil and false (not the main thread).
 				return new LuaTuple(LuaNil.Instance, LuaBoolean.False);
+			}
+			// Return the running coroutine with isMain = false (we don't expose the main thread).
 			return new LuaTuple(current, LuaBoolean.False);
+		}
+
+		private static LuaTuple IsYieldable(LuaCallingContext ctx, LuaValue[] args)
+		{
+			LuaThread? co;
+
+			if (args.Length == 0)
+			{
+				// Default to the current running coroutine.
+				co = LuaThread.Current.Value;
+			}
+			else if (args[0] is LuaThread t)
+			{
+				co = t;
+			}
+			else
+			{
+				return new LuaTuple(LuaBoolean.False);
+			}
+
+			// A coroutine is yieldable if it is running (not dead, not suspended, not normal).
+			bool yieldable = co != null && co.Status == LuaThreadStatus.Running;
+			return new LuaTuple(LuaBoolean.FromBoolean(yieldable));
+		}
+
+		private static LuaTuple Close(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0 || args[0] is not LuaThread thread)
+				return new LuaTuple(LuaNil.Instance, new LuaString(
+					"bad argument #1 to 'close' (thread expected)"));
+
+			switch (thread.Status)
+			{
+				case LuaThreadStatus.Suspended:
+				case LuaThreadStatus.Dead:
+					// Close the coroutine: mark as dead.
+					thread.Close();
+					return new LuaTuple(LuaBoolean.True);
+
+				case LuaThreadStatus.Normal:
+					return new LuaTuple(LuaBoolean.False, new LuaString(
+						"cannot close a normal coroutine"));
+
+				case LuaThreadStatus.Running:
+					// Check if this is the main thread (we don't expose it, so it's an error).
+					return new LuaTuple(LuaBoolean.False, new LuaString(
+						"cannot close running coroutine"));
+
+				default:
+					return new LuaTuple(LuaBoolean.False, new LuaString(
+						"cannot close coroutine"));
+			}
 		}
 	}
 }

@@ -11,6 +11,12 @@ namespace AsyncLua.Values
 		/// <summary>The coroutine is currently running.</summary>
 		Running,
 
+		/// <summary>
+		/// The coroutine is active but not running; it is resumed by and resuming
+		/// another coroutine (i.e., A resumed B, so A is "normal" while B runs).
+		/// </summary>
+		Normal,
+
 		/// <summary>The coroutine has finished executing (returned).</summary>
 		Dead,
 	}

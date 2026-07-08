@@ -4,7 +4,7 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>12.0</LangVersion>
     <Nullable>enable</Nullable>
-    <Version>0.2.5</Version>
+    <Version>0.3.0</Version>
     <AssemblyName>AsyncLua</AssemblyName>
     <RootNamespace>AsyncLua</RootNamespace>
     <Description>An extended Lua interpreter for C#, optimized for concurrency with async/await patterns.</Description>

@@ -191,6 +191,19 @@ namespace AsyncLua.Values
 		}
 
 		/// <summary>
+		/// Closes this coroutine, forcing it into the dead state.
+		/// This is equivalent to Lua's <c>coroutine.close()</c>.
+		/// </summary>
+		internal void Close()
+		{
+			Status = LuaThreadStatus.Dead;
+			_executionTask = null;
+			// Complete any pending TCS so that awaiting code can proceed.
+			_resumeTcs.TrySetCanceled();
+			_yieldTcs.TrySetCanceled();
+		}
+
+		/// <summary>
 		/// Packs a status bool followed by the actual (spread) result values into a single tuple.
 		/// </summary>
 		private static LuaTuple PackResult(LuaValue status, LuaTuple inner)

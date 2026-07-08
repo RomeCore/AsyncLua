@@ -371,4 +371,286 @@ public class CoroutineLibraryTests
 		Assert.Equal(LuaBoolean.True, result[0]);
 		Assert.Equal("task", Assert.IsType<LuaString>(result[1]).Value);
 	}
+
+	// ═══════════════════════════════════════════════════════════════════
+	// COROUTINE.ISYIELDABLE
+	// ═══════════════════════════════════════════════════════════════════
+
+	[Fact]
+	public async Task IsYieldable_NoArgInsideCoroutine_ReturnsTrue()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				return coroutine.isyieldable()
+			end)
+			local _, res = await coroutine.resume_async(co)
+			return res
+		");
+		Assert.Equal(LuaBoolean.True, result.First);
+	}
+
+	[Fact]
+	public async Task IsYieldable_OutsideCoroutine_ReturnsFalse()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync("return coroutine.isyieldable()");
+		Assert.Equal(LuaBoolean.False, result.First);
+	}
+
+	[Fact]
+	public async Task IsYieldable_DeadCoroutine_ReturnsFalse()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(function() end)
+			coroutine.resume(co)
+			return coroutine.isyieldable(co)
+		");
+		Assert.Equal(LuaBoolean.False, result.First);
+	}
+
+	[Fact]
+	public async Task IsYieldable_SuspendedCoroutine_ReturnsFalse()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				await coroutine.yield_async()
+			end)
+			coroutine.resume(co)
+			return coroutine.isyieldable(co)
+		");
+		Assert.Equal(LuaBoolean.False, result.First);
+	}
+
+	[Fact]
+	public async Task IsYieldable_NonThreadArg_ReturnsFalse()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync("return coroutine.isyieldable(42)");
+		Assert.Equal(LuaBoolean.False, result.First);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
+	// COROUTINE.CLOSE
+	// ═══════════════════════════════════════════════════════════════════
+
+	[Fact]
+	public async Task Close_DeadCoroutine_ReturnsTrue()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(function() end)
+			coroutine.resume(co)
+			return coroutine.close(co)
+		");
+		Assert.Equal(LuaBoolean.True, result.First);
+	}
+
+	[Fact]
+	public async Task Close_SuspendedCoroutine_ClosesAndReturnsTrue()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				await coroutine.yield_async()
+			end)
+			coroutine.resume(co)
+			return coroutine.close(co), coroutine.status(co)
+		");
+		Assert.Equal(LuaBoolean.True, result[0]);
+		Assert.Equal("dead", Assert.IsType<LuaString>(result[1]).Value);
+	}
+
+	[Fact]
+	public async Task Close_RunningCoroutine_ReturnsFalse()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				-- Cannot close a running coroutine from inside.
+				return coroutine.close(co)
+			end)
+			local _, res = await coroutine.resume_async(co)
+			-- The close inside fails, but the coroutine completes normally.
+			return res
+		");
+		Assert.Equal(LuaBoolean.False, result.First);
+	}
+
+	[Fact]
+	public async Task Close_InvalidArg_ReturnsError()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync("return coroutine.close('not_a_thread')");
+		Assert.IsType<LuaNil>(result[0]);
+		Assert.Contains("bad argument #1", Assert.IsType<LuaString>(result[1]).Value);
+	}
+
+	[Fact]
+	public async Task Close_ResumeAfterClose_ReturnsError()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				await coroutine.yield_async('alive')
+			end)
+			coroutine.resume(co)
+			coroutine.close(co)
+			local ok, err = coroutine.resume(co)
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		Assert.Contains("cannot resume dead coroutine", Assert.IsType<LuaString>(result[1]).Value);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
+	// STATUS EDGE CASES
+	// ═══════════════════════════════════════════════════════════════════
+
+	[Fact]
+	public async Task Status_InvalidArg_ReturnsDead()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync("return coroutine.status('not_a_thread')");
+		Assert.Equal("dead", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	[Fact]
+	public async Task Status_NoArg_ReturnsDead()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync("return coroutine.status()");
+		Assert.Equal("dead", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
+	// RUNNING EDGE CASES
+	// ═══════════════════════════════════════════════════════════════════
+
+	[Fact]
+	public async Task Running_OutsideCoroutine_ReturnsNilAndFalse()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync("return coroutine.running()");
+		Assert.IsType<LuaNil>(result[0]);
+		Assert.Equal(LuaBoolean.False, result[1]);
+	}
+
+	[Fact]
+	public async Task Running_InsideCoroutine_ReturnsThreadAndFalse()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				local t, isMain = coroutine.running()
+				return type(t), tostring(isMain)
+			end)
+			local _, tType, isMain = await coroutine.resume_async(co)
+			return tType, isMain
+		");
+		Assert.Equal("thread", Assert.IsType<LuaString>(result[0]).Value);
+		Assert.Equal("false", Assert.IsType<LuaString>(result[1]).Value);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
+	// YIELD EDGE CASES
+	// ═══════════════════════════════════════════════════════════════════
+
+	[Fact]
+	public async Task Yield_NoArgs_YieldsEmpty()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			-- Use synchronous yield for empty yield (avoids CALL B=0 stack capture issues)
+			local co = coroutine.create(async function()
+				coroutine.yield()
+				return 'done'
+			end)
+			local ok, y = coroutine.resume(co)
+			local _, r = coroutine.resume(co)
+			return ok, y, r
+		");
+		Assert.Equal(LuaBoolean.True, result[0]);
+		Assert.IsType<LuaNil>(result[1]);
+		Assert.Equal("done", Assert.IsType<LuaString>(result[2]).Value);
+	}
+
+	[Fact]
+	public async Task YieldAsync_NoArgs_YieldsNil()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				await coroutine.yield_async()
+				return 'done'
+			end)
+			local ok, y = await coroutine.resume_async(co)
+			local _, r = await coroutine.resume_async(co)
+			return ok, y, r
+		");
+		Assert.Equal(LuaBoolean.True, result[0]);
+		// yield_async with no args should yield nothing → y = nil
+		Assert.IsType<LuaNil>(result[1]);
+		Assert.Equal("done", Assert.IsType<LuaString>(result[2]).Value);
+	}
+
+	[Fact]
+	public async Task Yield_MultipleValues_YieldsAll()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				await coroutine.yield_async(1, 'two', 3)
+				return 'done'
+			end)
+			local _, a, b, c = await coroutine.resume_async(co)
+			return a, b, c
+		");
+		Assert.Equal(1.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		Assert.Equal("two", Assert.IsType<LuaString>(result[1]).Value);
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[2]).Value);
+	}
+
+	[Fact]
+	public async Task YieldOutsideCoroutine_Throws()
+	{
+		var state = CreateState();
+		var ex = await Assert.ThrowsAsync<LuaRuntimeException>(async () =>
+			await state.ExecuteAsync("coroutine.yield(10)"));
+		Assert.Contains("no coroutine to yield", ex.Message);
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
+	// RESUME EDGE CASES
+	// ═══════════════════════════════════════════════════════════════════
+
+	[Fact]
+	public async Task Resume_NoArgs_ResumesWithNil()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co = coroutine.create(async function()
+				local x = coroutine.yield('give')
+				return x
+			end)
+			coroutine.resume(co)
+			local _, r = coroutine.resume(co)
+			return r
+		");
+		Assert.IsType<LuaNil>(result.First);
+	}
+
+	[Fact]
+	public async Task Create_NoArg_ReturnsError()
+	{
+		var state = CreateState();
+		var result = await state.ExecuteAsync(@"
+			local co, err = coroutine.create()
+			return co, err
+		");
+		Assert.IsType<LuaNil>(result[0]);
+		Assert.Contains("bad argument #1", Assert.IsType<LuaString>(result[1]).Value);
+	}
 }

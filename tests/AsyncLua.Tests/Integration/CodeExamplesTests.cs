@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -24,7 +24,7 @@ namespace AsyncLua.Tests.Integration
 			await state.ExecuteAsync(@"
 				async function fetchData()
 					-- Simulate async I/O
-					await delay(100)
+					await task.delay(100)
 					return 'data received'
 				end
 
@@ -39,7 +39,7 @@ namespace AsyncLua.Tests.Integration
 				async function doWork1()
 					lock mutex do
 						try
-							await delay(200)
+							await task.delay(200)
 							throw 'some error occured'
 						catch ex do
 							return ex
@@ -49,13 +49,13 @@ namespace AsyncLua.Tests.Integration
 	
 				async function doWork2()
 					lock mutex do
-						await delay(150)
+						await task.delay(150)
 						return 'data successfully received'
 					end
 				end
 
 				async function doWork3()
-					await delay(250)
+					await task.delay(250)
 					return 'another data successfully received'
 				end
 
@@ -76,9 +76,8 @@ namespace AsyncLua.Tests.Integration
 			Assert.Contains("data received", prints);
 			Assert.Contains("some error occured\tdata successfully received\tanother data successfully received", prints);
 			output.WriteLine($"Elapsed time: {elapsed} ms for executing critical sections and try-catch with throw.");
-			Assert.True(elapsed > 350);
-			// GitHub CI/CD fails 80% of the time BECAUSE THEY RUNNING ON FUCKING POTATOES
-			// Assert.True(elapsed < 600);
+			Assert.True(elapsed >= 350);
+			Assert.True(elapsed < 600);
 		}
 	}
 }

@@ -40,6 +40,11 @@ namespace AsyncLua
 		public Action<string>? Print { get; set; }
 
 		/// <summary>
+		/// Gets or sets a callback function that will be invoked when <c>warn(...)</c> is called.
+		/// </summary>
+		public Action<string>? Warn { get; set; }
+
+		/// <summary>
 		/// Initialises a new instance of the <see cref="LuaCallingContext"/> class.
 		/// </summary>
 		/// <param name="state">The owning Lua state.</param>

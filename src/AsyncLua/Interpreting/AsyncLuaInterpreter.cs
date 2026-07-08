@@ -872,6 +872,11 @@ namespace AsyncLua.Interpreting
 										{
 											var csharpTask = luaFunc.InvokeAsync(context, args);
 											registers[inst.A] = LuaTask.FromTask(csharpTask);
+											// Clear the next register to prevent stale values (e.g. LuaThread
+											// from a previous CALL argument) from leaking into subsequent
+											// multi-return after AWAIT with fewer results.
+											if (inst.A + 1 < registers.Length)
+												registers[inst.A + 1] = LuaNil.Instance;
 											frame.RegisterTop = Math.Max(frame.RegisterTop, inst.A + 1);
 											// pc already advanced; execution continues without blocking.
 											break;
