@@ -31,7 +31,7 @@ state.Execute("print('Hello from Lua!')");
 await state.ExecuteAsync(@"
     async function fetchData()
         -- Simulate async I/O
-        await delay(100)
+        await task.delay(100)
         return 'data received'
     end
 
@@ -47,7 +47,7 @@ var compiled = state.Compile(@"
     async function doWork1()
         lock mutex do
             try
-                await delay(200)
+                await task.delay(200)
                 throw 'some error occured'
             catch ex do
                 return ex
@@ -57,13 +57,13 @@ var compiled = state.Compile(@"
     
     async function doWork2()
         lock mutex do
-            await delay(150)
+            await task.delay(150)
             return 'data successfully received'
         end
     end
 
     async function doWork3()
-        await delay(250)
+        await task.delay(250)
         return 'another data successfully received'
     end
 

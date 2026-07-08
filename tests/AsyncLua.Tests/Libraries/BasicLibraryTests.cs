@@ -705,7 +705,6 @@ public class BasicLibraryTests(ITestOutputHelper output)
 		Assert.Equal(99.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 
-
 	// ── other utilities ─────────────────────────────────────────────
 
 	[Fact]
