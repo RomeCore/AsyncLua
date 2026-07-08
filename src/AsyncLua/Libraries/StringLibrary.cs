@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using AsyncLua.Values;
+using AsyncLua.Interpreting;
+
 
 namespace AsyncLua.Libraries
 {
@@ -362,6 +364,26 @@ namespace AsyncLua.Libraries
 
 					return StringUnpack(fmt, data, pos);
 				}, "string.unpack"));
+
+			// ── dump ─────────────────────────────────────────────────
+
+			table.Set(new LuaString("dump"), new LuaCallbackFunction(
+				(ctx, args) =>
+				{
+					if (args.Length == 0)
+						throw new LuaRuntimeException("bad argument #1 to 'dump' (function expected, got no value)");
+
+					if (args[0] is not LuaNativeFunction func)
+						throw new LuaRuntimeException("bad argument #1 to 'dump' (function expected, got " + args[0].TypeName + ")");
+
+					bool strip = args.Length > 1 && args[1].ToBoolean();
+
+var data = PrototypeSerializer.Serialize(func.Prototype, strip);
+					// Use Latin-1 to preserve all bytes 0-255 unchanged.
+					return new LuaTuple(new LuaString(
+						System.Text.Encoding.GetEncoding("ISO-8859-1").GetString(data)));
+				}, "string.dump"));
+
 
 			// ── String metatable ──────────────────────────────────────
 

@@ -3,6 +3,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using AsyncLua.Parsing.Statements;
 using AsyncLua.Values;
+using AsyncLua.Compiling;
+using AsyncLua.Interpreting;
+
 
 namespace AsyncLua.Libraries
 {
@@ -48,6 +51,8 @@ namespace AsyncLua.Libraries
 			state.SetGlobal("rawlen", new LuaCallbackFunction(RawLen, "rawlen"));
 			state.SetGlobal("rawget", new LuaCallbackFunction(RawGet, "rawget"));
 			state.SetGlobal("rawset", new LuaCallbackFunction(RawSet, "rawset"));
+			state.SetGlobal("load", new LuaCallbackFunction(Load, "load"));
+			state.SetGlobal("dostring", new LuaCallbackFunction(DoString, "dostring"));
 
 			// Set _VERSION global constant.
 			var version = typeof(BasicLibrary).Assembly.GetName().Version.ToString();
@@ -386,6 +391,108 @@ namespace AsyncLua.Libraries
 				throw new LuaRuntimeException("rawget: expected a table as first argument");
 
 			return new LuaTuple(tbl.Get(args[1]));
+		}
+
+		private static LuaTuple Load(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0)
+				return new LuaTuple(LuaNil.Instance, new LuaString(
+					"bad argument #1 to 'load' (string or function expected, got no value)"));
+
+			string chunk;
+			if (args[0] is LuaString str)
+			{
+				chunk = str.Value;
+			}
+			else if (args[0] is LuaFunction readerFunc)
+			{
+				// Read chunks from the function until it returns nil.
+				var sb = new System.Text.StringBuilder();
+				while (true)
+				{
+					var chunkResult = readerFunc.Invoke(ctx);
+					if (chunkResult.Count == 0 || chunkResult[0] is LuaNil)
+						break;
+					sb.Append(chunkResult[0].ToString());
+				}
+				chunk = sb.ToString();
+			}
+			else
+			{
+				return new LuaTuple(LuaNil.Instance, new LuaString(
+					"bad argument #1 to 'load' (string or function expected, got " + args[0].TypeName + ")"));
+			}
+
+			// Optional arguments.
+			string sourceName = args.Length > 1 ? args[1].ToString() : "=(load)";
+			string mode = args.Length > 2 ? args[2].ToString() ?? "bt" : "bt";
+			LuaTable? env = args.Length > 3 && args[3] is LuaTable envTable ? envTable : null;
+
+			bool allowBinary = mode.Contains('b');
+			bool allowText = mode.Contains('t');
+
+			try
+			{
+				// Try binary first if allowed and the data looks like bytecode.
+				if (allowBinary && chunk.Length >= 4 &&
+					chunk[0] == '\x1b' && chunk[1] == 'A' && chunk[2] == 's' && chunk[3] == 'L')
+				{
+					byte[] data = System.Text.Encoding.GetEncoding("ISO-8859-1").GetBytes(chunk);
+				var prototype = PrototypeSerializer.Deserialize(data);
+					var state = ctx.State;
+
+					// Create fresh upvalues (nil) for any upvalue descriptions in the prototype.
+					var upvalues = prototype.UpvalueDescriptions.Length > 0
+						? Array.ConvertAll(prototype.UpvalueDescriptions, _ => Upvalue.CreateClosed(LuaNil.Instance))
+						: Array.Empty<Upvalue>();
+
+					var func = new LuaNativeFunction(prototype, upvalues: upvalues, environment: env);
+
+					return new LuaTuple(func);
+				}
+
+				if (!allowText)
+					return new LuaTuple(LuaNil.Instance, new LuaString(
+						"attempt to load a text chunk (mode is 'b')"));
+
+				// Parse and compile as Lua source code.
+				var state2 = ctx.State;
+				var block = state2.Parser.Parse(chunk);
+				var textProto = AsyncLuaCompiler.Compile(block, state2.CompilerSettings, sourceName: sourceName);
+				var func2 = new LuaNativeFunction(textProto, environment: env);
+
+				if (env is not null)
+					func2.Environment = env;
+
+				return new LuaTuple(func2);
+			}
+			catch (Exception ex)
+			{
+				return new LuaTuple(LuaNil.Instance, new LuaString(ex.Message));
+			}
+		}
+
+		private static LuaTuple DoString(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0)
+				throw new LuaRuntimeException("bad argument #1 to 'dostring' (string expected, got no value)");
+
+			if (args[0] is not LuaString codeStr)
+				throw new LuaRuntimeException("bad argument #1 to 'dostring' (string expected, got " + args[0].TypeName + ")");
+
+			string code = codeStr.Value;
+			var state = ctx.State;
+
+			try
+			{
+				var block = state.Parser.Parse(code);
+				var prototype = AsyncLuaCompiler.Compile(block, state.CompilerSettings, sourceName: "=(dostring)");
+				return AsyncLuaInterpreter.Call(prototype, ctx);
+			}
+			catch (Exception ex)
+			{
+				throw new LuaRuntimeException($"dostring: {ex.Message}");
+			}
 		}
 
 		private static LuaTuple RawSet(LuaCallingContext ctx, LuaValue[] args)

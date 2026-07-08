@@ -297,7 +297,8 @@ namespace AsyncLua.Interpreting
 							case OpCode.GETGLOBAL:
 								{
 									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
-									registers[inst.A] = globals.Get(key);
+									var targetGlobals = frame.Globals ?? globals;
+									registers[inst.A] = targetGlobals.Get(key);
 									pc++;
 									break;
 								}
@@ -305,7 +306,8 @@ namespace AsyncLua.Interpreting
 							case OpCode.SETGLOBAL:
 								{
 									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
-									globals.Set(key, registers[inst.A]);
+									var targetGlobals = frame.Globals ?? globals;
+									targetGlobals.Set(key, registers[inst.A]);
 									pc++;
 									break;
 								}
@@ -896,7 +898,8 @@ namespace AsyncLua.Interpreting
 												resultBase: inst.A,
 												resultCount: inst.C)
 											{
-												Closure = nativeFunc
+												Closure = nativeFunc,
+												Globals = nativeFunc.Environment
 											};
 
 											// Copy arguments to new frame registers.

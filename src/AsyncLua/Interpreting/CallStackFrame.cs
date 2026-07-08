@@ -58,6 +58,14 @@ namespace AsyncLua.Interpreting
 		/// </summary>
 		public int RegisterTop;
 
+		/// <summary>
+		/// The global environment table for this frame.
+		/// If <see langword="null"/>, the calling context's globals are used.
+		/// Set when a <see cref="LuaNativeFunction"/> has a custom <see cref="LuaNativeFunction.Environment"/>.
+		/// </summary>
+		public LuaTable? Globals;
+
+
 		public CallStackFrame(FunctionPrototype function, int returnPC, int resultBase = 0, int resultCount = 0)
 		{
 			if (function == null) throw new ArgumentNullException(nameof(function));

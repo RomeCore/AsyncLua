@@ -445,6 +445,149 @@ public class BasicLibraryTests(ITestOutputHelper output)
 		Assert.Equal("caught: caught me", Assert.IsType<LuaString>(result.First).Value);
 	}
 
+	// ── load ───────────────────────────────────────────────────────
+
+	[Fact]
+	public void Load_SimpleCode_ReturnsFunction()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local fn = load('return 2 + 3')
+			return fn()
+		");
+		Assert.Equal(5.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void Load_SyntaxError_ReturnsNilAndError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local fn, err = load('syntax error {{{')
+			return fn, err
+		");
+		Assert.IsType<LuaNil>(result[0]);
+		Assert.IsType<LuaString>(result[1]);
+	}
+
+	[Fact]
+	public void Load_BinaryString_Roundtrips()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local function add(a, b) return a + b end
+			local data = string.dump(add)
+			local fn = load(data)
+			return fn(10, 20)
+		");
+		Assert.Equal(30.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void Load_WithEnvironment_SetsEnv()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local env = { x = 10 }
+			local fn = load('return x', nil, 't', env)
+			return fn()
+		");
+		Assert.Equal(10.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void Load_WithSourceName_UsesIt()
+	{
+		var state = CreateState();
+		// Source name just passes through, we check it doesn't error
+		var result = state.Execute(@"
+			local fn = load('return 1', 'my_custom_source.lua')
+			return fn()
+		");
+		Assert.Equal(1.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void Load_ModeBinaryOnly_RejectsText()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local fn, err = load('return 1', nil, 'b')
+			return fn, err
+		");
+		Assert.IsType<LuaNil>(result[0]);
+		Assert.Contains("mode is 'b'", Assert.IsType<LuaString>(result[1]).Value);
+	}
+
+	[Fact]
+	public void Load_NoArgs_ReturnsNilAndError()
+	{
+		var state = CreateState();
+		var result = state.Execute("return load()");
+		Assert.IsType<LuaNil>(result[0]);
+		Assert.IsType<LuaString>(result[1]);
+	}
+
+	[Fact]
+	public void Load_WithReaderFunction_Works()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local i = 0
+			local function reader()
+				i = i + 1
+				if i == 1 then return 'return 2' end
+				if i == 2 then return ' + 3' end
+				return nil
+			end
+			local fn = load(reader)
+			return fn()
+		");
+		Assert.Equal(5.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	// ── dostring ───────────────────────────────────────────────────
+
+	[Fact]
+	public void DoString_SimpleCode_ReturnsResult()
+	{
+		var state = CreateState();
+		var result = state.Execute("return dostring('return 1 + 2')");
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void DoString_WithSideEffect_Works()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			dostring('x = 42')
+			return x
+		");
+		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void DoString_NoArgs_Throws()
+	{
+		var state = CreateState();
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("dostring()"));
+	}
+
+	[Fact]
+	public void DoString_NonStringArg_Throws()
+	{
+		var state = CreateState();
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("dostring(42)"));
+	}
+
+	[Fact]
+	public void DoString_SyntaxError_Throws()
+	{
+		var state = CreateState();
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("dostring('syntax error {{{')"));
+	}
+
 	// ── other utilities ─────────────────────────────────────────────
 
 	[Fact]

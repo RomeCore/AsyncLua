@@ -774,6 +774,82 @@ public class StringLibraryTests
 	}
 
 
+	// ── string.dump ─────────────────────────────────────────────────
+
+	[Fact]
+	public void Dump_BasicFunction_Roundtrips()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local function add(a, b)
+				return a + b
+			end
+			local data = string.dump(add)
+			local fn = load(data)
+			return fn(2, 3)
+		");
+		Assert.Equal(5.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void Dump_WithStrip_Works()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local function f() return 42 end
+			local data = string.dump(f, true)
+			local fn = load(data)
+			return fn()
+		");
+		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void Dump_NonLuaFunction_Throws()
+	{
+		var state = CreateState();
+		Assert.Throws<LuaRuntimeException>(() =>
+			state.Execute("return string.dump(print)"));
+	}
+
+	[Fact]
+	public void Dump_NoArgs_Throws()
+	{
+		var state = CreateState();
+		Assert.Throws<LuaRuntimeException>(() =>
+			state.Execute("return string.dump()"));
+	}
+
+	[Fact]
+	public void Dump_NonFunctionArg_Throws()
+	{
+		var state = CreateState();
+		Assert.Throws<LuaRuntimeException>(() =>
+			state.Execute("return string.dump(42)"));
+	}
+
+	[Fact]
+	public void Dump_FunctionWithUpvalues_Roundtrips()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local function makeCounter()
+				local count = 10
+				return function()
+					count = count + 1
+					return count
+				end
+			end
+			local counter = makeCounter()
+			local data = string.dump(counter)
+			local loaded = load(data)
+			local ok, err = pcall(loaded)
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		Assert.Contains("number", Assert.IsType<LuaString>(result[1]).Value);
+	}
+
 	[Fact]
 	public void TypeMetatables_Len_Throws()
 	{

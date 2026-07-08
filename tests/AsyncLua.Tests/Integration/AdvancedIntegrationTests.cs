@@ -114,7 +114,7 @@ public class AdvancedIntegrationTests
 							if (kvp.Key.Equals(prevKey)) prevFound = true;
 						}
 						if (foundKey is null) return new LuaTuple(LuaNil.Instance);
-						return new LuaTuple(foundKey, foundVal);
+						return new LuaTuple(foundKey, foundVal!);
 					}, "next");
 				return new LuaTuple(nextFunc, t, LuaNil.Instance);
 			}, "pairs"));

@@ -8,7 +8,9 @@ namespace AsyncLua.Parsing
 	{
 		public string SourceCode;
 		public int TabSize;
-		public readonly bool IsValid => SourceCode != null;
+		public readonly bool IsValid => SourceCode != null
+			&& StartIndex >= 0
+			&& StartIndex + Length <= SourceCode.Length;
 
 		public int StartIndex, Length;
 		public readonly int EndIndex => StartIndex + Length;

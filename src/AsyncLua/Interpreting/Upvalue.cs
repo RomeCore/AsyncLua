@@ -57,6 +57,16 @@ namespace AsyncLua.Interpreting
 		}
 
 		/// <summary>
+		/// Creates a closed upvalue (not pointing to any stack) with the given initial value.
+		/// </summary>
+		/// <param name="value">The initial value for the upvalue.</param>
+		/// <returns>A new closed upvalue.</returns>
+		public static Upvalue CreateClosed(LuaValue value)
+		{
+			return new Upvalue(value);
+		}
+
+		/// <summary>
 		/// Creates an open upvalue pointing to a register in the specified stack.
 		/// </summary>
 		/// <param name="stack">The register array of the enclosing frame.</param>
@@ -66,6 +76,13 @@ namespace AsyncLua.Interpreting
 			_stack = stack ?? throw new ArgumentNullException(nameof(stack));
 			_index = index;
 			_cachedValue = LuaNil.Instance;
+		}
+
+		private Upvalue(LuaValue value)
+		{
+			_stack = null;
+			_index = 0;
+			_cachedValue = value;
 		}
 
 		/// <summary>
