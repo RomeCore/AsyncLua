@@ -8,7 +8,7 @@ namespace AsyncLua.Tests.Integration;
 /// Integration tests for the <c>continue</c> statement in all loop types:
 /// while, repeat, numeric for, and generic for (for-in).
 /// </summary>
-public class ContinueIntegrationTests(ITestOutputHelper output)
+public class ContinueIntegrationTests
 {
     private static LuaState CreateState()
     {
@@ -365,12 +365,11 @@ public class ContinueIntegrationTests(ITestOutputHelper output)
         Assert.Equal([1, 2, 4, 5], results);
     }
 
-    /* Edge-case, remove for now
     /// <summary>
     /// Verifies that <c>continue</c> in an <c>async</c> function with
     /// <c>lock</c> works correctly.
     /// </summary>
-    [Fact]
+    [Fact(Skip = "Lock does not unlocks when exited due to continue. This is a limitation of the current implementation.")]
     public async Task ContinueInAsyncFunctionWithLock()
     {
         var state = CreateState();
@@ -393,7 +392,6 @@ public class ContinueIntegrationTests(ITestOutputHelper output)
 
         Assert.Equal([1, 3, 4], results);
     }
-    */
 
     // ────────────────────────────────────────────────────────────────
     // Edge cases
