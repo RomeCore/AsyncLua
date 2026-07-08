@@ -588,6 +588,124 @@ public class BasicLibraryTests(ITestOutputHelper output)
 		Assert.Throws<LuaRuntimeException>(() => state.Execute("dostring('syntax error {{{')"));
 	}
 
+	// ── setfenv / getfenv ────────────────────────────────────────────
+
+	[Fact]
+	public void SetFenv_Function_ChangesEnvironment()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local env = { x = 10 }
+			local function f()
+				return x
+			end
+			setfenv(f, env)
+			return f()
+		");
+		Assert.Equal(10.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void GetFenv_OnFunction_ReturnsEnvironment()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local env = { x = 10 }
+			local function f()
+				return x
+			end
+			setfenv(f, env)
+			local got = getfenv(f)
+			return got.x
+		");
+		Assert.Equal(10.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void SetFenv_Level0_ChangesCurrentEnv()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local env = { x = 20 }
+			local _setfenv = setfenv
+			_setfenv(0, env)
+			return x
+		");
+		Assert.Equal(20.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void GetFenv_Level0_ReturnsCurrentEnv()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local env = { x = 30 }
+			local _setfenv = setfenv
+			local _getfenv = getfenv
+			_setfenv(0, env)
+			local got = _getfenv(0)
+			return got.x
+		");
+		Assert.Equal(30.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void GetFenv_WithoutArgs_ReturnsCurrentEnv()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local env = getfenv()
+			return env._G ~= nil
+		");
+		Assert.Equal(LuaBoolean.True, result[0]);
+	}
+
+	[Fact]
+	public void SetFenv_CannotChangeCEnv()
+	{
+		var state = CreateState();
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("setfenv(print, {})"));
+	}
+
+	// ── _ENV as lexical variable ────────────────────────────────────
+
+	[Fact]
+	public void AssignToEnv_ChangesEnvironment()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			_ENV = { x = 42 }
+			return x
+		");
+		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void ReadEnv_ReturnsCurrentEnvironment()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local env = _ENV
+			return env._G ~= nil
+		");
+		Assert.Equal(LuaBoolean.True, result[0]);
+	}
+
+	[Fact]
+	public void AssignToEnv_NestedFunction_UsesNewEnv()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			_ENV = { y = 99 }
+			local function f()
+				return y
+			end
+			return f()
+		");
+		Assert.Equal(99.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+
 	// ── other utilities ─────────────────────────────────────────────
 
 	[Fact]

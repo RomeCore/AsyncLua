@@ -53,6 +53,8 @@ namespace AsyncLua.Libraries
 			state.SetGlobal("rawset", new LuaCallbackFunction(RawSet, "rawset"));
 			state.SetGlobal("load", new LuaCallbackFunction(Load, "load"));
 			state.SetGlobal("dostring", new LuaCallbackFunction(DoString, "dostring"));
+			state.SetGlobal("setfenv", new LuaCallbackFunction(SetFenv, "setfenv"));
+			state.SetGlobal("getfenv", new LuaCallbackFunction(GetFenv, "getfenv"));
 
 			// Set _VERSION global constant.
 			var version = typeof(BasicLibrary).Assembly.GetName().Version.ToString();
@@ -494,6 +496,73 @@ namespace AsyncLua.Libraries
 				throw new LuaRuntimeException($"dostring: {ex.Message}");
 			}
 		}
+
+		private static LuaTuple SetFenv(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length < 2)
+				throw new LuaRuntimeException("bad argument #1 to 'setfenv' (function or number expected, got no value)");
+
+			if (args[1] is not LuaTable envTable)
+				throw new LuaRuntimeException("bad argument #2 to 'setfenv' (table expected, got " + args[1].TypeName + ")");
+
+			if (args[0] is LuaNumber level)
+			{
+				int stackLevel = (int)level.Value;
+				if (stackLevel == 0)
+				{
+					ctx.Globals = envTable;
+					return new LuaTuple(LuaBoolean.True);
+				}
+				// Stack levels > 0 are not currently supported.
+				throw new LuaRuntimeException("setfenv: stack levels above 0 are not supported");
+			}
+			else if (args[0] is LuaNativeFunction nativeFunc)
+			{
+				nativeFunc.Environment = envTable;
+				return new LuaTuple(LuaBoolean.True);
+			}
+			else if (args[0] is LuaCallbackFunction)
+			{
+				throw new LuaRuntimeException("setfenv: cannot change environment of a C function");
+			}
+			else
+			{
+				throw new LuaRuntimeException("bad argument #1 to 'setfenv' (function or number expected, got " + args[0].TypeName + ")");
+			}
+		}
+
+		private static LuaTuple GetFenv(LuaCallingContext ctx, LuaValue[] args)
+		{
+			if (args.Length == 0)
+			{
+				// getfenv() defaults to level 1 (calling function) — return current context globals.
+				return new LuaTuple(ctx.Globals);
+			}
+
+			if (args[0] is LuaNumber level)
+			{
+				int stackLevel = (int)level.Value;
+				if (stackLevel == 0)
+				{
+					return new LuaTuple(ctx.Globals);
+				}
+				// Stack levels > 0 are not currently supported.
+				throw new LuaRuntimeException("getfenv: stack levels above 0 are not supported");
+			}
+			else if (args[0] is LuaNativeFunction nativeFunc)
+			{
+				return new LuaTuple(nativeFunc.Environment ?? ctx.Globals);
+			}
+			else if (args[0] is LuaCallbackFunction)
+			{
+				return new LuaTuple(ctx.Globals);
+			}
+			else
+			{
+				throw new LuaRuntimeException("bad argument #1 to 'getfenv' (function or number expected, got " + args[0].TypeName + ")");
+			}
+		}
+
 
 		private static LuaTuple RawSet(LuaCallingContext ctx, LuaValue[] args)
 		{

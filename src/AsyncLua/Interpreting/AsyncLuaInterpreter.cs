@@ -75,7 +75,6 @@ namespace AsyncLua.Interpreting
 			int pc = 0;
 			var lockedObjects = new Stack<object>();
 			var tryHandlers = new Stack<TryHandlerInfo>();
-			var globals = context.Globals;
 
 			var frame = new CallStackFrame(function, returnPC: -1)
 			{
@@ -297,8 +296,15 @@ namespace AsyncLua.Interpreting
 							case OpCode.GETGLOBAL:
 								{
 									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
-									var targetGlobals = frame.Globals ?? globals;
-									registers[inst.A] = targetGlobals.Get(key);
+									var targetGlobals = frame.Globals ?? context.Globals;
+									if (key is LuaString keyStr && keyStr.Value == "_ENV")
+									{
+										registers[inst.A] = targetGlobals;
+									}
+									else
+									{
+										registers[inst.A] = targetGlobals.Get(key);
+									}
 									pc++;
 									break;
 								}
@@ -306,8 +312,22 @@ namespace AsyncLua.Interpreting
 							case OpCode.SETGLOBAL:
 								{
 									var key = GetRK(registers, constants, inst.B, inst.Flags.HasFlag(OpFlags.KB), frame, pc);
-									var targetGlobals = frame.Globals ?? globals;
-									targetGlobals.Set(key, registers[inst.A]);
+									var targetGlobals = frame.Globals ?? context.Globals;
+									if (key is LuaString keyStr && keyStr.Value == "_ENV")
+									{
+										var newEnv = registers[inst.A];
+										if (newEnv is LuaTable envTable)
+										{
+											if (frame.Globals is not null)
+												frame.Globals = envTable;
+											else
+												context.Globals = envTable;
+										}
+									}
+									else
+									{
+										targetGlobals.Set(key, registers[inst.A]);
+									}
 									pc++;
 									break;
 								}
