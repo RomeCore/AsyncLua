@@ -79,7 +79,7 @@ namespace AsyncLua.Tests.Integration
 			Assert.True(elapsed >= 350);
 
 			// CI environments can be slower
-			if (Environment.GetEnvironmentVariable("CI") != "true")
+			if (!Utils.IsRunningCI())
 				Assert.True(elapsed < 600);
 		}
 	}

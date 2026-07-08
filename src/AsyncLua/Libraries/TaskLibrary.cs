@@ -35,7 +35,9 @@ namespace AsyncLua.Libraries
 					if (args.Length == 0 || !args[0].TryToNumber(out var delayMs))
 						throw new LuaRuntimeException("delay: expected a number as argument");
 
-					await Task.Delay((int)delayMs);
+					await Task.Delay(TimeSpan.FromMilliseconds(delayMs));
+					if (args.Length > 1)
+						return new LuaTuple(args.Skip(1).ToArray());
 					return LuaTuple.Empty;
 				}, "task.delay"));
 

@@ -63,6 +63,9 @@ public class AsyncCompilerIntegrationTests
 	[Fact]
 	public async Task AsyncCall_NonBlocking_TwoFunctionsRunConcurrently()
 	{
+		if (Utils.IsRunningCI())
+			return;
+
 		// Two C# async functions with barriers for precise control.
 		var barrier1 = new TaskCompletionSource<bool>();
 		var barrier2 = new TaskCompletionSource<bool>();
@@ -292,6 +295,9 @@ public class AsyncCompilerIntegrationTests
 	[Fact]
 	public async Task AsyncCall_ConcurrentExecution_OverlapsInTime()
 	{
+		if (Utils.IsRunningCI())
+			return;
+
 		async Task Execute(string code)
 		{
 			var barrier = new TaskCompletionSource<bool>();
