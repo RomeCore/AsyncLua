@@ -33,7 +33,7 @@ namespace AsyncLua.Compiling
 
 		private readonly List<Instruction> _instructions = new();
 		private readonly List<CodePositionalInfo> _positions = new();
-		private CodePositionalInfo _currentPosition;
+		private readonly Stack<CodePositionalInfo> _positionStack = new();
 		private readonly List<LuaValue> _constants = new();
 		private readonly Dictionary<LuaValue, int> _constantMap = new();
 		private readonly List<FunctionPrototype> _innerPrototypes = new();
@@ -121,30 +121,37 @@ namespace AsyncLua.Compiling
 
 		private void CompileStatement(StatementNode stmt)
 		{
-			SetPosition(stmt.Position);
-			switch (stmt)
+			PushPosition(stmt.Position);
+			try
 			{
-				case AssignmentNode assign: CompileAssignment(assign); break;
-				case AugassignmentNode augassign: CompileAugassignment(augassign); break;
-				case CallStatementNode callStmt: CompileCallStatement(callStmt); break;
-				case ReturnNode ret: CompileReturn(ret); break;
-				case IfNode ifNode: CompileIf(ifNode); break;
-				case WhileNode whileNode: CompileWhile(whileNode); break;
-				case RepeatNode repeatNode: CompileRepeat(repeatNode); break;
-				case ForNumericNode forNum: CompileForNumeric(forNum); break;
-				case ForInNode forIn: CompileForIn(forIn); break;
-				case DoNode doNode: CompileDo(doNode); break;
-				case BreakNode: CompileBreak(); break;
-				case ContinueNode: CompileContinue(); break;
-				case GotoNode gotoNode: CompileGoto(gotoNode); break;
-				case LabelNode labelNode: CompileLabel(labelNode); break;
-				case FunctionDeclStatementNode funcDecl: CompileFunctionDeclaration(funcDecl); break;
-				case LockNode lockNode: CompileLock(lockNode); break;
-				case TryCatchNode tryCatch: CompileTryCatch(tryCatch); break;
-				case ThrowNode throwNode: CompileThrow(throwNode); break;
-				case AwaitStatementNode awaitStmt: CompileAwaitStatement(awaitStmt); break;
-				default:
-					throw new CompilerException($"Unknown statement type: {stmt.GetType().Name}");
+				switch (stmt)
+				{
+					case AssignmentNode assign: CompileAssignment(assign); break;
+					case AugassignmentNode augassign: CompileAugassignment(augassign); break;
+					case CallStatementNode callStmt: CompileCallStatement(callStmt); break;
+					case ReturnNode ret: CompileReturn(ret); break;
+					case IfNode ifNode: CompileIf(ifNode); break;
+					case WhileNode whileNode: CompileWhile(whileNode); break;
+					case RepeatNode repeatNode: CompileRepeat(repeatNode); break;
+					case ForNumericNode forNum: CompileForNumeric(forNum); break;
+					case ForInNode forIn: CompileForIn(forIn); break;
+					case DoNode doNode: CompileDo(doNode); break;
+					case BreakNode breakNode: CompileBreak(breakNode); break;
+					case ContinueNode continueNode: CompileContinue(continueNode); break;
+					case GotoNode gotoNode: CompileGoto(gotoNode); break;
+					case LabelNode labelNode: CompileLabel(labelNode); break;
+					case FunctionDeclStatementNode funcDecl: CompileFunctionDeclaration(funcDecl); break;
+					case LockNode lockNode: CompileLock(lockNode); break;
+					case TryCatchNode tryCatch: CompileTryCatch(tryCatch); break;
+					case ThrowNode throwNode: CompileThrow(throwNode); break;
+					case AwaitStatementNode awaitStmt: CompileAwaitStatement(awaitStmt); break;
+					default:
+						throw new LuaCompilerException($"Unknown statement type: {stmt.GetType().Name}", stmt.Position);
+				}
+			}
+			finally
+			{
+				PopPosition();
 			}
 		}
 
@@ -299,8 +306,9 @@ namespace AsyncLua.Compiling
 				}
 				else
 				{
-					throw new CompilerException(
-						$"Assignment target must be an identifier or index, got {target.GetType().Name}.");
+					throw new LuaCompilerException(
+						$"Assignment target must be an identifier or index, got {target.GetType().Name}.",
+						target.Position);
 				}
 			}
 
@@ -313,7 +321,7 @@ namespace AsyncLua.Compiling
 
 		private void CompileAugassignment(AugassignmentNode node)
 		{
-			OpCode op = BinaryOpToOpCode(node.Operator);
+			OpCode op = BinaryOpToOpCode(node.Operator, node.Position);
 
 			if (node.Left is IdentifierNode ident)
 			{
@@ -381,8 +389,9 @@ namespace AsyncLua.Compiling
 			}
 			else
 			{
-				throw new CompilerException(
-					$"Augmented assignment target must be an identifier or index, got {node.Left.GetType().Name}.");
+				throw new LuaCompilerException(
+					$"Augmented assignment target must be an identifier or index, got {node.Left.GetType().Name}.",
+					node.Left.Position);
 			}
 		}
 
@@ -751,19 +760,19 @@ namespace AsyncLua.Compiling
 
 		// ── Break / Continue ────────────────────────────────────────────
 
-		private void CompileBreak()
+		private void CompileBreak(BreakNode node)
 		{
 			if (_loopStack.Count == 0)
-				throw new CompilerException("<break> statement outside of a loop.");
+				throw new LuaCompilerException("<break> statement outside of a loop.", node.Position);
 
 			var loop = _loopStack.Peek();
 			EmitJMP_Label(loop.ExitLabel);
 		}
 
-		private void CompileContinue()
+		private void CompileContinue(ContinueNode node)
 		{
 			if (_loopStack.Count == 0)
-				throw new CompilerException("<continue> statement outside of a loop.");
+				throw new LuaCompilerException("<continue> statement outside of a loop.", node.Position);
 
 			var loop = _loopStack.Peek();
 			EmitJMP_Label(loop.ContinueLabel);
@@ -1030,51 +1039,58 @@ namespace AsyncLua.Compiling
 		/// </summary>
 		private void CompileExpression(ExpressionNode expr, int destReg)
 		{
-			SetPosition(expr.Position);
-			switch (expr)
+			PushPosition(expr.Position);
+			try
 			{
-				case LiteralNode lit:
-					Emit(OpCode.MOVE, (byte)destReg, (ushort)GetConstantIndex(lit.Literal), flags: OpFlags.KB);
-					break;
+				switch (expr)
+				{
+					case LiteralNode lit:
+						Emit(OpCode.MOVE, (byte)destReg, (ushort)GetConstantIndex(lit.Literal), flags: OpFlags.KB);
+						break;
 
-				case IdentifierNode ident:
-					CompileIdentifier(ident, destReg);
-					break;
+					case IdentifierNode ident:
+						CompileIdentifier(ident, destReg);
+						break;
 
-				case BinaryOperatorNode binOp:
-					CompileBinaryOp(binOp, destReg);
-					break;
+					case BinaryOperatorNode binOp:
+						CompileBinaryOp(binOp, destReg);
+						break;
 
-				case UnaryOperatorNode unOp:
-					CompileUnaryOp(unOp, destReg);
-					break;
+					case UnaryOperatorNode unOp:
+						CompileUnaryOp(unOp, destReg);
+						break;
 
-				case FunctionCallNode call:
-					CompileFunctionCall(call, destReg);
-					break;
+					case FunctionCallNode call:
+						CompileFunctionCall(call, destReg);
+						break;
 
-				case IndexNode index:
-					CompileGetIndex(index, destReg);
-					break;
+					case IndexNode index:
+						CompileGetIndex(index, destReg);
+						break;
 
-				case TableConstructionNode table:
-					CompileTableConstructor(table, destReg);
-					break;
+					case TableConstructionNode table:
+						CompileTableConstructor(table, destReg);
+						break;
 
-				case FunctionDeclExpressionNode funcExpr:
-					CompileFunctionExpression(funcExpr, destReg);
-					break;
+					case FunctionDeclExpressionNode funcExpr:
+						CompileFunctionExpression(funcExpr, destReg);
+						break;
 
-				case AwaitExpressionNode awaitExpr:
-					CompileAwaitExpression(awaitExpr, destReg);
-					break;
+					case AwaitExpressionNode awaitExpr:
+						CompileAwaitExpression(awaitExpr, destReg);
+						break;
 
-				case VarArgumentNode:
-					Emit(OpCode.VARARG, (byte)destReg, 0);
-					break;
+					case VarArgumentNode:
+						Emit(OpCode.VARARG, (byte)destReg, 0);
+						break;
 
-				default:
-					throw new CompilerException($"Unknown expression type: {expr.GetType().Name}");
+					default:
+						throw new LuaCompilerException($"Unknown expression type: {expr.GetType().Name}", expr.Position);
+				}
+			}
+			finally
+			{
+				PopPosition();
 			}
 		}
 
@@ -1114,7 +1130,7 @@ namespace AsyncLua.Compiling
 				return;
 			}
 
-			OpCode op = BinaryOpToOpCode(node.Operator);
+			OpCode op = BinaryOpToOpCode(node.Operator, node.Position);
 
 			int leftReg = destReg;
 			int rightReg = AllocateRegister();
@@ -1160,7 +1176,7 @@ namespace AsyncLua.Compiling
 				UnaryOperatorType.Minus => OpCode.UNM,
 				UnaryOperatorType.LogicalNot => OpCode.NOT,
 				UnaryOperatorType.LengthOf => OpCode.LEN,
-				_ => throw new CompilerException($"Unknown unary operator: {node.Type}")
+				_ => throw new LuaCompilerException($"Unknown unary operator: {node.Type}", node.Position)
 			};
 
 			CompileExpression(node.Operand, destReg);
@@ -1534,7 +1550,7 @@ namespace AsyncLua.Compiling
 				string labelKey = fixup.TargetLabel.ToString();
 				if (!_labels.TryGetValue(labelKey, out int targetPosition))
 				{
-					throw new CompilerException(
+					throw new LuaCompilerException(
 						$"Unresolved jump target: label {fixup.TargetLabel}.");
 				}
 
@@ -1590,19 +1606,31 @@ namespace AsyncLua.Compiling
 		// EMIT HELPERS
 		// ═══════════════════════════════════════════════════════════════
 
-		private void Emit(OpCode code, int a = 0, int b = 0, int c = 0, OpFlags flags = OpFlags.None)
-		{
-			_instructions.Add(new Instruction(code, (byte)a, (ushort)b, (ushort)c, flags));
-			_positions.Add(_currentPosition);
-		}
-
 		/// <summary>
 		/// Sets the source position to be associated with subsequently emitted instructions.
 		/// </summary>
-		private void SetPosition(CodePositionalInfo pos)
+		private void PushPosition(CodePositionalInfo pos)
 		{
 			if (pos.IsValid)
-				_currentPosition = pos;
+				_positionStack.Push(pos);
+			else if (_positionStack.Count > 0)
+				_positionStack.Push(_positionStack.Peek());
+			else
+				_positionStack.Push(new CodePositionalInfo { StartIndex = -1 });
+		}
+
+		private void PopPosition()
+		{
+			_positionStack.Pop();
+		}
+
+		private void Emit(OpCode code, int a = 0, int b = 0, int c = 0, OpFlags flags = OpFlags.None)
+		{
+			_instructions.Add(new Instruction(code, (byte)a, (ushort)b, (ushort)c, flags));
+			if (_positionStack.Count > 0)
+				_positions.Add(_positionStack.Peek());
+			else
+				_positions.Add(new CodePositionalInfo { StartIndex = -1 });
 		}
 
 		private void EmitSETGLOBAL(string name, int srcReg)
@@ -1640,7 +1668,7 @@ namespace AsyncLua.Compiling
 		// OPCODE MAPPING
 		// ═══════════════════════════════════════════════════════════════
 
-		private static OpCode BinaryOpToOpCode(BinaryOperatorType op) => op switch
+		private static OpCode BinaryOpToOpCode(BinaryOperatorType op, CodePositionalInfo pos) => op switch
 		{
 			BinaryOperatorType.Add => OpCode.ADD,
 			BinaryOperatorType.Substract => OpCode.SUB,
@@ -1661,7 +1689,7 @@ namespace AsyncLua.Compiling
 			BinaryOperatorType.LessThanEqual => OpCode.LE,
 			BinaryOperatorType.GreaterThan => OpCode.GT,
 			BinaryOperatorType.GreaterThanEqual => OpCode.GE,
-			_ => throw new CompilerException($"Unknown binary operator: {op}")
+			_ => throw new LuaCompilerException($"Unknown binary operator: {op}", pos)
 		};
 	}
 }

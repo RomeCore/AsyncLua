@@ -52,8 +52,8 @@ namespace AsyncLua.Values
 		/// <inheritdoc />
 		public override bool TryToString(out string value)
 		{
-			value = null!;
-			return false;
+			value = "nil";
+			return true;
 		}
 
 		/// <inheritdoc />

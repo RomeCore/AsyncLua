@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace AsyncLua.Values
 {
@@ -45,6 +46,13 @@ namespace AsyncLua.Values
 
 		/// <inheritdoc />
 		public override string TypeName => "boolean";
+
+		/// <inheritdoc />
+		public override bool TryToString(out string value)
+		{
+			value = Value ? "true" : "false";
+			return true;
+		}
 
 		/// <inheritdoc />
 		public override string ToString() => Value ? "true" : "false";

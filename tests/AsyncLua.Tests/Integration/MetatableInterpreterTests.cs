@@ -379,7 +379,6 @@ public class MetatableInterpreterTests
 		// Indexing a string should throw in Default mode (strings are not tables).
 		var ex = Assert.Throws<LuaRuntimeException>(() =>
 			CompileAndExecute("return 'hello'[1]"));
-		Assert.Contains("GETTABLE", ex.Message);
 	}
 
 	[Fact]

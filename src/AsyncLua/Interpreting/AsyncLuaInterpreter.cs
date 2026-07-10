@@ -179,7 +179,7 @@ namespace AsyncLua.Interpreting
 											if (current is LuaTable or LuaUserData)
 												registers[inst.A] = LuaNil.Instance;
 											else
-												throw RuntimeError($"GETTABLE: cannot index a '{current.TypeName}' value (must have __index metamethod).", frame.Function, pc);
+												throw RuntimeError($"Cannot index a value from '{current.TypeName}' (must be a table or have __index metamethod).", frame.Function, pc);
 											pc++;
 											break;
 										}
@@ -258,7 +258,7 @@ namespace AsyncLua.Interpreting
 										}
 										else
 										{
-											throw RuntimeError($"SETTABLE: cannot set a '{table.TypeName}' value (must have __newindex metamethod).", frame.Function, pc);
+											throw RuntimeError($"Cannot set a value into '{table.TypeName}' (must be a table or have __newindex metamethod).", frame.Function, pc);
 										}
 									}
 
@@ -443,7 +443,7 @@ namespace AsyncLua.Interpreting
 							case OpCode.AWAIT:
 								{
 									if (!async)
-										throw RuntimeError("AWAIT is only supported in asyncronous contexts.", frame.Function, pc);
+										throw RuntimeError("Awaiting is only supported in asyncronous contexts.", frame.Function, pc);
 
 									LuaTuple results;
 									var awaitable = registers[inst.A];
@@ -469,7 +469,7 @@ namespace AsyncLua.Interpreting
 									else
 									{
 										var task = awaitable as LuaTask
-											?? throw RuntimeError("AWAIT: operand A must be a LuaTask or have an __await metamethod.", frame.Function, pc);
+											?? throw RuntimeError("Cannot await a non-LuaTask or a value that does not have an __await metamethod.", frame.Function, pc);
 
 										try
 										{
@@ -701,9 +701,9 @@ namespace AsyncLua.Interpreting
 										// In Lua, only strings and numbers can be concatenated;
 										// numbers are converted to strings automatically.
 										if (lhs.Type != LuaType.String && lhs.Type != LuaType.Number)
-											throw RuntimeError($"Attempt to concatenate a '{lhs.TypeName}' value.", frame.Function, pc);
+											throw RuntimeError($"Cannot concatenate '{lhs.TypeName}' with '{rhs.TypeName}'.", frame.Function, pc);
 										if (rhs.Type != LuaType.String && rhs.Type != LuaType.Number)
-											throw RuntimeError($"Attempt to concatenate a '{rhs.TypeName}' value.", frame.Function, pc);
+											throw RuntimeError($"Cannot concatenate '{lhs.TypeName}' with '{rhs.TypeName}'.", frame.Function, pc);
 
 										lhs.TryToString(out var sa);
 										rhs.TryToString(out var sb);
@@ -721,7 +721,7 @@ namespace AsyncLua.Interpreting
 									if (result == null)
 									{
 										if (!operand.TryToNumber(out var value))
-											throw RuntimeError($"Attempt to perform arithmetic on a '{operand.TypeName}' value.", frame.Function, pc);
+											throw RuntimeError($"Cannot perform arithmetic (unary minus) on a '{operand.TypeName}' value (must have __unm metamethod or be a number).", frame.Function, pc);
 										result = new LuaNumber(-value);
 									}
 									registers[inst.A] = result;
@@ -754,7 +754,7 @@ namespace AsyncLua.Interpreting
 												result = new LuaNumber(table.Length);
 												break;
 											default:
-												throw RuntimeError($"Attempt to get length of a '{operand.TypeName}' value.", frame.Function, pc);
+												throw RuntimeError($"Cannot get length of a '{operand.TypeName}' value (must have __len metamethod or be a string or table).", frame.Function, pc);
 										}
 									}
 									registers[inst.A] = result;
@@ -892,14 +892,21 @@ namespace AsyncLua.Interpreting
 										// ── Async function: launch and return a LuaTask immediately ──
 										if (luaFunc.IsAsync)
 										{
-											var csharpTask = luaFunc.InvokeAsync(context, args);
-											registers[inst.A] = LuaTask.FromTask(csharpTask);
-											// Clear the next register to prevent stale values (e.g. LuaThread
-											// from a previous CALL argument) from leaking into subsequent
-											// multi-return after AWAIT with fewer results.
-											if (inst.A + 1 < registers.Length)
-												registers[inst.A + 1] = LuaNil.Instance;
-											frame.RegisterTop = Math.Max(frame.RegisterTop, inst.A + 1);
+											try
+											{
+												var csharpTask = luaFunc.InvokeAsync(context, args);
+												registers[inst.A] = LuaTask.FromTask(csharpTask);
+												// Clear the next register to prevent stale values (e.g. LuaThread
+												// from a previous CALL argument) from leaking into subsequent
+												// multi-return after AWAIT with fewer results.
+												if (inst.A + 1 < registers.Length)
+													registers[inst.A + 1] = LuaNil.Instance;
+												frame.RegisterTop = Math.Max(frame.RegisterTop, inst.A + 1);
+											}
+											catch (LuaRuntimeException ex) when (!ex.HasPosition)
+											{
+												throw RuntimeError(ex.OriginalMessage, function, pc - 1, ex.InnerException);
+											}
 											// pc already advanced; execution continues without blocking.
 											break;
 										}
@@ -957,33 +964,40 @@ namespace AsyncLua.Interpreting
 										}
 										else
 										{
-											// ── Synchronous C# callback function ──
-											LuaTuple results;
-											if (async)
-												results = await luaFunc.InvokeAsync(context, args);
-											else
-												results = luaFunc.Invoke(context, args);
+											try
+											{
+												// ── Synchronous C# callback function ──
+												LuaTuple results;
+												if (async)
+													results = await luaFunc.InvokeAsync(context, args);
+												else
+													results = luaFunc.Invoke(context, args);
 
-											// Store results in R[A]..R[A + effectiveWant - 1].
-											// C=0 means "accept all results" (Lua multiple-return convention).
-											int effectiveWant = wantResults == 0 ? results.Count : wantResults;
-											int storeCount = Math.Min(results.Count, effectiveWant);
-											// Bound writes to available register space.
-											int callMaxWrite = registers.Length - inst.A;
-											if (storeCount > callMaxWrite)
-												storeCount = callMaxWrite;
-											if (effectiveWant > callMaxWrite)
-												effectiveWant = callMaxWrite;
-											for (int i = 0; i < storeCount; i++)
-												registers[inst.A + i] = results[i];
-											// Pad with nil if fewer results than expected.
-											for (int i = storeCount; i < effectiveWant; i++)
-												registers[inst.A + i] = LuaNil.Instance;
+												// Store results in R[A]..R[A + effectiveWant - 1].
+												// C=0 means "accept all results" (Lua multiple-return convention).
+												int effectiveWant = wantResults == 0 ? results.Count : wantResults;
+												int storeCount = Math.Min(results.Count, effectiveWant);
+												// Bound writes to available register space.
+												int callMaxWrite = registers.Length - inst.A;
+												if (storeCount > callMaxWrite)
+													storeCount = callMaxWrite;
+												if (effectiveWant > callMaxWrite)
+													effectiveWant = callMaxWrite;
+												for (int i = 0; i < storeCount; i++)
+													registers[inst.A + i] = results[i];
+												// Pad with nil if fewer results than expected.
+												for (int i = storeCount; i < effectiveWant; i++)
+													registers[inst.A + i] = LuaNil.Instance;
 
-											// Update RegisterTop for RETURN B=0 to know how many values are live.
-											int top = inst.A + effectiveWant;
-											if (top > frame.RegisterTop)
-												frame.RegisterTop = top;
+												// Update RegisterTop for RETURN B=0 to know how many values are live.
+												int top = inst.A + effectiveWant;
+												if (top > frame.RegisterTop)
+													frame.RegisterTop = top;
+											}
+											catch (LuaRuntimeException ex) when (!ex.HasPosition)
+											{
+												throw RuntimeError(ex.OriginalMessage, function, pc - 1, ex.InnerException);
+											}
 										}
 										break;
 									}
@@ -1026,12 +1040,11 @@ namespace AsyncLua.Interpreting
 									}
 									else
 									{
-										throw RuntimeError("CALL: operand A must be a function or have __call metamethod.", frame.Function, pc - 1);
+										throw RuntimeError("Call target must be a function or have __call metamethod.", frame.Function, pc - 1);
 									}
 
 									break;
 								}
-
 
 							case OpCode.RETURN:
 								{
@@ -1094,7 +1107,7 @@ namespace AsyncLua.Interpreting
 									var start = registers[inst.A];
 									var step = registers[inst.A + 2];
 									if (!start.TryToNumber(out var s) || !step.TryToNumber(out var st))
-										throw RuntimeError("FORPREP: operands must be numbers.", frame.Function, pc);
+										throw RuntimeError("Operands in for loop must be numbers.", frame.Function, pc);
 
 									registers[inst.A] = new LuaNumber(s - st);
 									pc += GetSignedOffset(inst);
@@ -1109,7 +1122,7 @@ namespace AsyncLua.Interpreting
 									var step = registers[inst.A + 2];
 
 									if (!counter.TryToNumber(out var c) || !limit.TryToNumber(out var l) || !step.TryToNumber(out var st))
-										throw RuntimeError("FORLOOP: operands must be numbers.", frame.Function, pc);
+										throw RuntimeError("Operands in for loop must be numbers.", frame.Function, pc);
 
 									c += st;
 									registers[inst.A] = new LuaNumber(c);
@@ -1135,7 +1148,7 @@ namespace AsyncLua.Interpreting
 									// R[A+1] (state) is NOT updated — it remains as set by the initialiser
 									// (e.g. pairs/ipairs), following standard Lua semantics.
 									var tforFunc = registers[inst.A] as LuaFunction
-										?? throw RuntimeError("TFORCALL: operand A must be a function.", frame.Function, pc);
+										?? throw RuntimeError("Operand in for-in loop must be a function.", frame.Function, pc);
 
 									var tforArgs = new LuaValue[] { registers[inst.A + 1], registers[inst.A + 2] };
 
@@ -1596,7 +1609,7 @@ namespace AsyncLua.Interpreting
 		{
 			if (!lhs.TryToNumber(out var a) || !rhs.TryToNumber(out var b))
 			{
-				throw RuntimeError($"Attempt to perform arithmetic on a non-number value (instruction {inst.Code}).", frame.Function, pc - 1);
+				throw RuntimeError($"Cannot perform arithmetic on a non-number value.", frame.Function, pc);
 			}
 
 			double result = kind switch
@@ -1607,11 +1620,10 @@ namespace AsyncLua.Interpreting
 				ArithOpKind.Div => a / b,
 				ArithOpKind.IDiv => Math.Floor(a / b),
 				ArithOpKind.Pow => Math.Pow(a, b),
-				ArithOpKind.Mod => b != 0 ? a - Math.Floor(a / b) * b : throw RuntimeError("Attempt to perform modulo with zero divisor.", frame.Function, pc - 1),
-				_ => throw RuntimeError($"Unknown arithmetic operation: {kind}.", frame.Function, pc - 1)
+				ArithOpKind.Mod => b != 0 ? a - Math.Floor(a / b) * b : throw RuntimeError("Cannot perform modulo with zero divisor.", frame.Function, pc - 1),
+				_ => throw RuntimeError($"Unknown arithmetic operation: {kind}.", frame.Function, pc)
 			};
 			
-
 			return new LuaNumber(result);
 		}
 
@@ -1653,7 +1665,7 @@ namespace AsyncLua.Interpreting
 						return LuaBoolean.FromBoolean(string.CompareOrdinal(sa, sb) < 0);
 					}
 
-					throw RuntimeError($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<'.", frame.Function, pc);
+					throw RuntimeError($"Cannot compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<'.", frame.Function, pc);
 
 				case CompareOpKind.Le:
 
@@ -1671,7 +1683,7 @@ namespace AsyncLua.Interpreting
 						return LuaBoolean.FromBoolean(string.CompareOrdinal(sa, sb) <= 0);
 					}
 
-					throw RuntimeError($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<='.", frame.Function, pc);
+					throw RuntimeError($"Cannot compare '{lhs.TypeName}' with '{rhs.TypeName}' using '<='.", frame.Function, pc);
 
 				case CompareOpKind.Gt:
 
@@ -1689,7 +1701,7 @@ namespace AsyncLua.Interpreting
 						return LuaBoolean.FromBoolean(string.CompareOrdinal(sa, sb) > 0);
 					}
 
-					throw RuntimeError($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>'.", frame.Function, pc);
+					throw RuntimeError($"Cannot compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>'.", frame.Function, pc);
 
 				case CompareOpKind.Ge:
 
@@ -1707,7 +1719,7 @@ namespace AsyncLua.Interpreting
 						return LuaBoolean.FromBoolean(string.CompareOrdinal(sa, sb) >= 0);
 					}
 
-					throw RuntimeError($"Attempt to compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>='.", frame.Function, pc);
+					throw RuntimeError($"Cannot compare '{lhs.TypeName}' with '{rhs.TypeName}' using '>='.", frame.Function, pc);
 
 				default:
 
@@ -1727,7 +1739,7 @@ namespace AsyncLua.Interpreting
 			in Instruction inst, in CallStackFrame frame, in int pc)
 		{
 			if (!TryToInteger(lhs, out var a) || !TryToInteger(rhs, out var b))
-				throw RuntimeError($"Attempt to perform bitwise operation on non-integer values.", frame.Function, pc);
+				throw RuntimeError($"Cannot perform bitwise operation on non-integer values.", frame.Function, pc);
 
 			long result = kind switch
 			{

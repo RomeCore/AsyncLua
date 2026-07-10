@@ -1,12 +1,12 @@
 using System;
 using AsyncLua.Parsing;
 
-namespace AsyncLua
+namespace AsyncLua.Compiling
 {
 	/// <summary>
-	/// Represents a runtime exception that occurred in the AsyncLua environment.
+	/// The exception that is thrown when a compilation error occurs.
 	/// </summary>
-	public class LuaRuntimeException : Exception
+	public class LuaCompilerException : Exception
 	{
 		/// <summary>
 		/// Gets the original exception message without positional info.
@@ -24,45 +24,43 @@ namespace AsyncLua
 		public bool HasPosition => Position.IsValid;
 
 		/// <summary>
-		/// Initialises a new instance of the <see cref="LuaRuntimeException"/> class.
+		/// Initialises a new instance of the <see cref="LuaCompilerException"/> class.
 		/// </summary>
 		/// <param name="message">The error message.</param>
-		public LuaRuntimeException(string message) : base(message)
+		public LuaCompilerException(string message) : base(message)
 		{
 			OriginalMessage = message;
 		}
 
 		/// <summary>
-		/// Initialises a new instance of the <see cref="LuaRuntimeException"/> class
-		/// with source position information.
+		/// Initialises a new instance of the <see cref="LuaCompilerException"/> class.
 		/// </summary>
 		/// <param name="message">The error message.</param>
-		/// <param name="position">The source position where the error occurred.</param>
-		public LuaRuntimeException(string message, CodePositionalInfo position) : base(FormatMessageWithPosition(message, position))
+		public LuaCompilerException(string message, CodePositionalInfo position) : base(FormatMessageWithPosition(message, position))
 		{
 			OriginalMessage = message;
 			Position = position;
 		}
 
 		/// <summary>
-		/// Initialises a new instance of the <see cref="LuaRuntimeException"/> class
+		/// Initialises a new instance of the <see cref="LuaCompilerException"/> class
 		/// with an inner exception.
 		/// </summary>
 		/// <param name="message">The error message.</param>
 		/// <param name="inner">The inner exception.</param>
-		public LuaRuntimeException(string message, Exception? inner) : base(message, inner)
+		public LuaCompilerException(string message, Exception? inner) : base(message, inner)
 		{
 			OriginalMessage = message;
 		}
 
 		/// <summary>
-		/// Initialises a new instance of the <see cref="LuaRuntimeException"/> class
+		/// Initialises a new instance of the <see cref="LuaCompilerException"/> class
 		/// with source position information and an inner exception.
 		/// </summary>
 		/// <param name="message">The error message.</param>
 		/// <param name="position">The source position where the error occurred.</param>
 		/// <param name="inner">The inner exception.</param>
-		public LuaRuntimeException(string message, CodePositionalInfo position, Exception? inner) : base(FormatMessageWithPosition(message, position), inner)
+		public LuaCompilerException(string message, CodePositionalInfo position, Exception? inner) : base(FormatMessageWithPosition(message, position), inner)
 		{
 			OriginalMessage = message;
 			Position = position;

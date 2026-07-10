@@ -450,7 +450,7 @@ public class ContinueIntegrationTests
     {
         var state = CreateState();
 
-        var ex = Assert.Throws<AsyncLua.Compiling.CompilerException>(() =>
+        var ex = Assert.Throws<AsyncLua.Compiling.LuaCompilerException>(() =>
             state.Execute("continue"));
 
         Assert.Contains("continue", ex.Message, System.StringComparison.OrdinalIgnoreCase);

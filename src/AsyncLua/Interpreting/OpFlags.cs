@@ -26,11 +26,11 @@ namespace AsyncLua.Interpreting
 		/// </summary>
 		SignedBX = 1 << 2,
 
-        /// <summary>
-        /// The CALL instruction should append the current frame's varargs
-        /// (<see cref="CallStackFrame.VarArgs"/>) after the fixed arguments
-        /// read from registers. Used when the last argument expression is <c>...</c>.
-        /// </summary>
-        VarArgCall = 1 << 3,
+		/// <summary>
+		/// The CALL instruction should append the current frame's varargs
+		/// (<see cref="CallStackFrame.VarArgs"/>) after the fixed arguments
+		/// read from registers. Used when the last argument expression is <c>...</c>.
+		/// </summary>
+		VarArgCall = 1 << 3,
 	}
 }
