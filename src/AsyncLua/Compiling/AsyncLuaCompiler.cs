@@ -20,9 +20,10 @@ namespace AsyncLua.Compiling
 	/// instances linked via <see cref="_parent"/>.
 	/// </para>
 	/// <para>
-	/// The compiler uses a linear register allocator: local variables and temporary expression
-	/// results are assigned monotonically increasing register slots. No register reuse is
-	/// performed (SPARC-style allocation).
+	/// The compiler uses a scope-based register allocator: within each scope, local variables
+	/// and temporary expression results are assigned monotonically increasing register slots.
+	/// When leaving a scope, registers used by inner locals and temporaries are released and
+	/// reused by subsequent scopes (scope-based reset).
 	/// </para>
 	/// </remarks>
 	public class AsyncLuaCompiler
@@ -43,6 +44,9 @@ namespace AsyncLua.Compiling
 
 		/// <summary>Next available register slot.</summary>
 		private int _nextRegister;
+
+		/// <summary>Peak register usage across the entire function (for MaxRegSize).</summary>
+		private int _maxRegUsed;
 
 		/// <summary>Maps local variable names to their register slot.</summary>
 		private readonly Dictionary<string, int> _locals = new();
@@ -104,10 +108,13 @@ namespace AsyncLua.Compiling
 
 		private void CompileBlock(BlockNode block)
 		{
-			// Save locals to provide a new scope for the block.
+			// Save locals and register state to provide a new scope for the block.
 			var savedLocals = new Dictionary<string, int>(_locals);
+			int savedNextReg = _nextRegister;
+
 			foreach (var stmt in block.Statements)
 				CompileStatement(stmt);
+
 			// Restore locals: remove newly introduced names, restore overwritten old values.
 			var keysToRemove = new List<string>();
 			foreach (var k in _locals.Keys)
@@ -117,6 +124,15 @@ namespace AsyncLua.Compiling
 				_locals.Remove(key);
 			foreach (var kv in savedLocals)
 				_locals[kv.Key] = kv.Value;
+
+			// Reset _nextRegister for register reuse when leaving a scope.
+			// Registers used by local variables from outer scopes (savedLocals)
+			// must be preserved, but temporary registers and inner locals can be recycled.
+			int maxSavedLocalReg = -1;
+			foreach (var reg in savedLocals.Values)
+				if (reg > maxSavedLocalReg)
+					maxSavedLocalReg = reg;
+			_nextRegister = Math.Max(savedNextReg, maxSavedLocalReg + 1);
 		}
 
 		private void CompileStatement(StatementNode stmt)
@@ -530,10 +546,11 @@ namespace AsyncLua.Compiling
 		/// <summary>Emits an implicit RETURN at the end of a function.</summary>
 		private void EmitReturn()
 		{
-			// Use the current register top as base, so RETURN B=0 returns 0 values.
-			// If we used A=0 (the old behaviour), RETURN B=0 would return all live
-			// registers from R[0] to RegisterTop, which is wrong for implicit returns.
-			Emit(OpCode.RETURN, (byte)_nextRegister, 0);
+			// Use the peak register count as base, so RETURN B=0 returns 0 values.
+			// _nextRegister may have been reset by scope-based deallocation, so we must
+			// use _maxRegUsed (the highest register index ever allocated + 1) to ensure
+			// RegisterTop is never >= A, resulting in 0 returned values.
+			Emit(OpCode.RETURN, (byte)(_maxRegUsed + 1), 0);
 		}
 
 		// ── If ──────────────────────────────────────────────────────────
@@ -1391,7 +1408,10 @@ namespace AsyncLua.Compiling
 		/// <summary>Allocates and returns the next available register slot.</summary>
 		private int AllocateRegister()
 		{
-			return _nextRegister++;
+			int reg = _nextRegister++;
+			if (reg > _maxRegUsed)
+				_maxRegUsed = reg;
+			return reg;
 		}
 
 		// ═══════════════════════════════════════════════════════════════
@@ -1655,7 +1675,7 @@ namespace AsyncLua.Compiling
 		{
 			return new FunctionPrototype(
 				instructions: _instructions.ToArray(),
-				maxRegSize: _nextRegister,
+				maxRegSize: _maxRegUsed + 1, // +1 because maxRegSize is count, not index
 				isAsync: _isAsync,
 				constants: _constants.ToArray(),
 				innerPrototypes: _innerPrototypes.ToArray(),
