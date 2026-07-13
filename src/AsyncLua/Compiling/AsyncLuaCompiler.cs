@@ -113,7 +113,20 @@ namespace AsyncLua.Compiling
 			int savedNextReg = _nextRegister;
 
 			foreach (var stmt in block.Statements)
+			{
 				CompileStatement(stmt);
+
+				// Free temporary registers after each statement for register reuse.
+				// Temporary registers used during expression compilation are dead
+				// after the statement completes; only local variables remain live.
+				// This prevents _nextRegister from growing monotonically across
+				// statements and exceeding the byte-sized register field limit (255).
+				int maxLocalReg = -1;
+				foreach (var reg in _locals.Values)
+					if (reg > maxLocalReg)
+						maxLocalReg = reg;
+				_nextRegister = Math.Max(savedNextReg, maxLocalReg + 1);
+			}
 
 			// Restore locals: remove newly introduced names, restore overwritten old values.
 			var keysToRemove = new List<string>();
@@ -428,8 +441,21 @@ namespace AsyncLua.Compiling
 
 		private void CompileReturn(ReturnNode node)
 		{
-			int baseReg = AllocateRegister();
 			int valueCount = node.Values.Length;
+
+			// For an empty return, emit RETURN with A=_maxRegUsed so that
+			// runtime RegisterTop - A ≤ 0 (RegisterTop never exceeds _maxRegUsed).
+			// This ensures Math.Max(0, RegisterTop - A) = 0 and returns an empty tuple.
+			if (valueCount == 0)
+			{
+				int maxUsedReg = _maxRegUsed;
+				if (_nextRegister <= maxUsedReg)
+					_nextRegister = maxUsedReg + 1;
+				Emit(OpCode.RETURN, (byte)maxUsedReg, 0);
+				return;
+			}
+
+			int baseReg = AllocateRegister();
 
 			// Pre-allocate registers for all return values.
 			while (_nextRegister < baseReg + valueCount)
@@ -1406,9 +1432,17 @@ namespace AsyncLua.Compiling
 		// ═══════════════════════════════════════════════════════════════
 
 		/// <summary>Allocates and returns the next available register slot.</summary>
+		/// <exception cref="LuaCompilerException">
+		/// Thrown if the register count exceeds the byte-sized limit of 256 (0–255).
+		/// </exception>
 		private int AllocateRegister()
 		{
 			int reg = _nextRegister++;
+			if (reg > 255)
+				throw new LuaCompilerException(
+					"Register allocation overflow: function requires more than 256 registers. " +
+					"Consider splitting complex expressions into smaller statements, " +
+					"or reducing the number of simultaneously live local variables.");
 			if (reg > _maxRegUsed)
 				_maxRegUsed = reg;
 			return reg;
