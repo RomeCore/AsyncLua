@@ -19,7 +19,6 @@
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-
   <ItemGroup>
     <PackageReference Include="RCParsing" Version="5.3.0" />
   </ItemGroup>

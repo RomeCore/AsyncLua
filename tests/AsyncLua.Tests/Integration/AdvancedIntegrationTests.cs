@@ -362,6 +362,76 @@ public class AdvancedIntegrationTests
 	}
 
 	[Fact]
+	public void CodeWithoutReturn_ReturnsEmptyTuple()
+	{
+		var state = CreateState();
+
+		var result = Execute(state, @"
+			local function b(n)
+				return n * 2
+			end
+			local a = 42
+			a += 5
+			a /= b(1)
+		");
+
+		Assert.Empty(result);
+	}
+
+	[Fact]
+	public async Task CodeWithoutReturn_ReturnsEmptyTuple_Async()
+	{
+		var state = CreateState();
+
+		var result = await ExecuteAsync(state, @"
+			local function b(n)
+				return n * 2
+			end
+			local a = 42
+			a += 5
+			a /= b(1)
+		");
+
+		Assert.Empty(result);
+	}
+
+	[Fact]
+	public void CodeWithEmptyReturn_ReturnsEmptyTuple()
+	{
+		var state = CreateState();
+
+		var result = Execute(state, @"
+			local function b(n)
+				return n * 2
+			end
+			local a = 42
+			a += 5
+			a /= b(1)
+			return
+		");
+
+		Assert.Empty(result);
+	}
+
+	[Fact]
+	public async Task CodeWithEmptyReturn_ReturnsEmptyTuple_Async()
+	{
+		var state = CreateState();
+
+		var result = await ExecuteAsync(state, @"
+			local function b(n)
+				return n * 2
+			end
+			local a = 42
+			a += 5
+			a /= b(1)
+			return
+		");
+
+		Assert.Empty(result);
+	}
+
+	[Fact]
 	public void QuickSort_FullImplementation_SortsCorrectly()
 	{
 		var state = CreateState();

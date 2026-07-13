@@ -530,7 +530,10 @@ namespace AsyncLua.Compiling
 		/// <summary>Emits an implicit RETURN at the end of a function.</summary>
 		private void EmitReturn()
 		{
-			Emit(OpCode.RETURN, 0, 0);
+			// Use the current register top as base, so RETURN B=0 returns 0 values.
+			// If we used A=0 (the old behaviour), RETURN B=0 would return all live
+			// registers from R[0] to RegisterTop, which is wrong for implicit returns.
+			Emit(OpCode.RETURN, (byte)_nextRegister, 0);
 		}
 
 		// ── If ──────────────────────────────────────────────────────────
