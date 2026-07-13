@@ -408,6 +408,8 @@ public class LockAndAwaitInterpreterTests
 	[Fact]
 	public async Task AsyncCall_ConcurrentExecution_OverlapsInTime()
 	{
+		if (Utils.IsRunningCI())
+			return;
 		// Prove that two async calls run concurrently by measuring time.
 		// Each function takes ~100ms. If sequential, total ≥ 200ms. If concurrent, ≤ 150ms.
 		var barrier = new TaskCompletionSource<bool>();

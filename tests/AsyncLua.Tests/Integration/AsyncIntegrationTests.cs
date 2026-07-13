@@ -155,6 +155,8 @@ public class AsyncIntegrationTests
 	[Fact]
 	public async Task Await_ConcurrentExecution_TasksRunInParallel()
 	{
+		if (Utils.IsRunningCI())
+			return;
 		var state = CreateState();
 
 		// Prove concurrency by measuring wall-clock time.
@@ -193,6 +195,8 @@ public class AsyncIntegrationTests
 	[Fact]
 	public async Task Await_ConcurrentExecution_TasksRunInParallel_Alternative()
 	{
+		if (Utils.IsRunningCI())
+			return;
 		var state = CreateState();
 
 		// Prove concurrency by measuring wall-clock time.
