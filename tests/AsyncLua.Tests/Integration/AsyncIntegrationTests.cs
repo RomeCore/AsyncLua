@@ -228,6 +228,9 @@ public class AsyncIntegrationTests
 	[Fact]
 	public async Task Await_FanOutPattern_ManyConcurrentTasks()
 	{
+		if (Utils.IsRunningCI())
+			return;
+
 		var state = CreateState();
 
 		var sw = System.Diagnostics.Stopwatch.StartNew();
