@@ -406,7 +406,7 @@ namespace AsyncLua.Values
 				{
 					var ud = args.Length > 0 ? args[0] as LuaUserData : null;
 					var target = ud?.Target;
-					var callArgs = UserDataOverloadResolver.PrepareCallArguments(method, parameters, args, ud != null ? 1 : 0);
+					var callArgs = UserDataOverloadResolver.PrepareCallArguments(ctx, method, parameters, args, ud != null ? 1 : 0);
 
 					var result = method.Invoke(target, callArgs);
 					if (returnsVoid)
@@ -434,7 +434,7 @@ namespace AsyncLua.Values
 				{
 					var ud = args.Length > 0 ? args[0] as LuaUserData : null;
 					var target = ud?.Target;
-					var callArgs = UserDataOverloadResolver.PrepareCallArguments(method, parameters, args, ud != null ? 1 : 0);
+					var callArgs = UserDataOverloadResolver.PrepareCallArguments(ctx, method, parameters, args, ud != null ? 1 : 0);
 
 					var result = method.Invoke(target, callArgs);
 

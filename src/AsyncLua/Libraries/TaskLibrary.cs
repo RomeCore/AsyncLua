@@ -35,7 +35,7 @@ namespace AsyncLua.Libraries
 					if (args.Length == 0 || !args[0].TryToNumber(out var delayMs))
 						throw new LuaRuntimeException("delay: expected a number as argument");
 
-					await Task.Delay(TimeSpan.FromMilliseconds(delayMs));
+					await Task.Delay(TimeSpan.FromMilliseconds(delayMs), ctx.CancellationToken);
 					if (args.Length > 1)
 						return new LuaTuple(args.Skip(1).ToArray());
 					return LuaTuple.Empty;
@@ -50,7 +50,7 @@ namespace AsyncLua.Libraries
 					return Task.Run(() =>
 					{
 						return func.InvokeAsync(ctx, args.Skip(1).ToArray());
-					});
+					}, ctx.CancellationToken);
 				}, "task.run", isAsync: true));
 
 			table.Set(new LuaString("pararun"), new LuaCallbackFunction(

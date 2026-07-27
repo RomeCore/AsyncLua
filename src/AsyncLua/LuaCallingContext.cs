@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using AsyncLua.Interpreting;
 using AsyncLua.Values;
 
@@ -43,6 +44,11 @@ namespace AsyncLua
 		/// Gets or sets a callback function that will be invoked when <c>warn(...)</c> is called.
 		/// </summary>
 		public Action<string>? Warn { get; set; }
+
+		/// <summary>
+		/// Gets or sets a cancellation token that can be used to cancel execution.
+		/// </summary>
+		public CancellationToken CancellationToken { get; set; }
 
 		/// <summary>
 		/// Initialises a new instance of the <see cref="LuaCallingContext"/> class.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 using System.Threading.Tasks;
 using AsyncLua.Compiling;
 using AsyncLua.Interpreting;
@@ -225,11 +226,12 @@ new CoroutineLibrary().Import(this);
 		/// Optional interpreter settings to use. If <see langword="null"/>, defaults are used.
 		/// </param>
 		/// <returns>A new calling context.</returns>
-		public LuaCallingContext CreateContext(LuaTable? environment = null, InterpreterSettings? settings = null)
+		public LuaCallingContext CreateContext(LuaTable? environment = null, InterpreterSettings? settings = null, CancellationToken cancellationToken = default)
 		{
 			var context = new LuaCallingContext(this, globals: environment ?? Globals, settings: settings ?? _interpreterSettings)
 			{
-				Print = Print ?? DefaultPrint
+				Print = Print ?? DefaultPrint,
+				CancellationToken = cancellationToken,
 			};
 			return context;
 		}
@@ -244,14 +246,14 @@ new CoroutineLibrary().Import(this);
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
-		public LuaTuple Execute(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null)
+		public LuaTuple Execute(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null, CancellationToken cancellationToken = default)
 		{
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
 			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
-			var context = CreateContext();
+			var context = CreateContext(cancellationToken: cancellationToken);
 			editContext?.Invoke(context);
 			return AsyncLuaInterpreter.Call(prototype, context);
 		}
@@ -269,14 +271,14 @@ new CoroutineLibrary().Import(this);
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
-		public Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null)
+		public Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null, CancellationToken cancellationToken = default)
 		{
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
 			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
-			var context = CreateContext();
+			var context = CreateContext(cancellationToken: cancellationToken);
 			editContext?.Invoke(context);
 			return AsyncLuaInterpreter.CallAsync(prototype, context);
 		}
@@ -291,14 +293,14 @@ new CoroutineLibrary().Import(this);
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
 		/// </exception>
-		public CompiledLuaCode Compile(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null)
+		public CompiledLuaCode Compile(string code, string? sourceName = null, Action<LuaCallingContext>? editContext = null, CancellationToken cancellationToken = default)
 		{
 			if (code is null)
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
 			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
-			var context = CreateContext();
+			var context = CreateContext(cancellationToken: cancellationToken);
 			editContext?.Invoke(context);
 			return new CompiledLuaCode(context, prototype);
 		}
@@ -316,7 +318,7 @@ new CoroutineLibrary().Import(this);
 				throw new ArgumentNullException(nameof(code));
 
 			var block = _parser.Parse(code);
-			var prototype = Compiling.AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
+			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
 			return prototype.Disassemble();
 		}
 	}

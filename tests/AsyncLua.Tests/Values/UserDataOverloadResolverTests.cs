@@ -1,6 +1,8 @@
 using System.Reflection;
 using AsyncLua.Values;
 
+using AsyncLua.Interpreting;
+
 namespace AsyncLua.Tests.Values;
 
 /// <summary>
@@ -193,6 +195,140 @@ public class UserDataOverloadResolverTests
 		Assert.Equal(5, cost);
 	}
 
+	// ── Hidden parameters (LuaCallingContext / CancellationToken) ─────────
+
+	[Fact]
+	public void IsCompatible_LuaCallingContextType_ReturnsTrueWithZeroCost()
+	{
+		// Any LuaValue is compatible with LuaCallingContext — it's injected automatically.
+		Assert.True(UserDataOverloadResolver.IsCompatible(
+			LuaNil.Instance, typeof(LuaCallingContext), out var cost));
+		Assert.Equal(0, cost);
+
+		Assert.True(UserDataOverloadResolver.IsCompatible(
+			new LuaNumber(42), typeof(LuaCallingContext), out cost));
+		Assert.Equal(0, cost);
+	}
+
+	[Fact]
+	public void IsCompatible_CancellationTokenType_ReturnsTrueWithZeroCost()
+	{
+		Assert.True(UserDataOverloadResolver.IsCompatible(
+			LuaNil.Instance, typeof(CancellationToken), out var cost));
+		Assert.Equal(0, cost);
+	}
+
+	private sealed class HiddenParamTestClass
+	{
+		public static string Process(int x) => $"int:{x}";
+		public static string Process(LuaCallingContext ctx, int x) => $"ctx_int:{x}";
+		public static string Process(int x, CancellationToken ct) => $"int_ct:{x}";
+		public static string Process(LuaCallingContext ctx, CancellationToken ct, int x) => $"ctx_ct:{x}";
+	}
+
+	private static readonly MethodInfo[] HiddenMethods = typeof(HiddenParamTestClass)
+		.GetMethods(BindingFlags.Public | BindingFlags.Static)
+		.Where(m => m.Name == "Process" && m.ReturnType == typeof(string))
+		.ToArray();
+
+	private static MethodInfo FindHiddenMethod(string name, int hiddenCount, int explicitCount)
+	{
+		return HiddenMethods.First(m =>
+		{
+			var pars = m.GetParameters();
+			int actualHidden = pars.Count(p => UserDataOverloadResolver.IsHiddenParameter(p.ParameterType));
+			int actualExplicit = pars.Length - actualHidden;
+			return actualHidden == hiddenCount && actualExplicit == explicitCount;
+		});
+	}
+
+	[Fact]
+	public void ResolveOverload_HiddenParams_WithOneArg_SelectsMostHidden()
+	{
+		// All 4 methods accept a single int. The ones with more hidden params should be preferred.
+		var args = new LuaValue[] { new LuaNumber(42) };
+		var match = UserDataOverloadResolver.ResolveOverload(HiddenMethods, args, out var score);
+
+		Assert.NotNull(match);
+		// Should prefer the method with both LuaCallingContext and CancellationToken
+		// because it has the most hidden params (bonus -4 → lowest score).
+		int hiddenCount = match.GetParameters()
+			.Count(p => UserDataOverloadResolver.IsHiddenParameter(p.ParameterType));
+		Assert.Equal(2, hiddenCount);
+	}
+
+	[Fact]
+	public void PrepareCallArguments_HiddenParams_ContextInjected()
+	{
+		var ctx = CreateTestContext();
+		var method = FindHiddenMethod("Process", hiddenCount: 2, explicitCount: 1);
+		var pars = method.GetParameters();
+		var args = new LuaValue[] { new LuaNumber(42) };
+
+		var result = UserDataOverloadResolver.PrepareCallArguments(ctx, method, pars, args, argOffset: 0);
+
+		Assert.Equal(3, result.Length);
+		Assert.Same(ctx, result[0]);               // LuaCallingContext
+		Assert.Equal(ctx.CancellationToken, result[1]); // CancellationToken
+		Assert.Equal(42, result[2]);                // int x
+	}
+
+	[Fact]
+	public void PrepareCallArguments_HiddenParamsWithOffset_ContextInjected()
+	{
+		var ctx = CreateTestContext();
+
+		// Instance-style: args[0] is UserData (self), args[1] is the real arg
+		var method = FindHiddenMethod("Process", hiddenCount: 2, explicitCount: 1);
+		var pars = method.GetParameters();
+		var args = new LuaValue[] { new LuaUserData("self"), new LuaNumber(99) };
+
+		var result = UserDataOverloadResolver.PrepareCallArguments(ctx, method, pars, args, argOffset: 1);
+
+		Assert.Equal(3, result.Length);
+		Assert.Same(ctx, result[0]);               // LuaCallingContext
+		Assert.Equal(ctx.CancellationToken, result[1]); // CancellationToken
+		Assert.Equal(99, result[2]);                // int x
+	}
+
+	[Fact]
+	public void PrepareCallArguments_HiddenParamsWithMultipleExplicitArgs()
+	{
+		var ctx = CreateTestContext();
+
+		var method = FindHiddenMethod("Process", hiddenCount: 2, explicitCount: 1);
+		var pars = method.GetParameters();
+		// Extra explicit args are ignored (only 1 explicit param in method)
+		var args = new LuaValue[] { new LuaNumber(10), new LuaNumber(20) };
+
+		var result = UserDataOverloadResolver.PrepareCallArguments(ctx, method, pars, args, argOffset: 0);
+
+		Assert.Equal(3, result.Length);
+		Assert.Same(ctx, result[0]);
+		Assert.Equal(ctx.CancellationToken, result[1]);
+		Assert.Equal(10, result[2]); // Only the first explicit arg is consumed
+	}
+
+	[Fact]
+	public void ResolveOverload_HiddenParams_WithTooManyExplicitArgs_ReturnsNull()
+	{
+		// None of the methods accept 2 explicit ints
+		var args = new LuaValue[] { new LuaNumber(1), new LuaNumber(2) };
+		var match = UserDataOverloadResolver.ResolveOverload(HiddenMethods, args, out _);
+
+		Assert.Null(match);
+	}
+
+
+	// ── Helpers ───────────────────────────────────────────────────────────
+
+	private static LuaCallingContext CreateTestContext()
+	{
+		var state = new LuaState().LoadDefaultLibraries();
+		var settings = new InterpreterSettings();
+		return state.CreateContext(settings: settings);
+	}
+
 	// ── PrepareCallArguments ─────────────────────────────────────────────
 
 	[Fact]
@@ -205,7 +341,7 @@ public class UserDataOverloadResolverTests
 
 		var pars = method.GetParameters();
 		var args = new LuaValue[] { new LuaNumber(10), new LuaNumber(20) };
-		var result = UserDataOverloadResolver.PrepareCallArguments(method, pars, args, argOffset: 0);
+		var result = UserDataOverloadResolver.PrepareCallArguments(null!, method, pars, args, argOffset: 0);
 
 		Assert.Equal(2, result.Length);
 		Assert.Equal(10, result[0]);
@@ -222,7 +358,7 @@ public class UserDataOverloadResolverTests
 		var pars = method.GetParameters();
 		// args[0] is the userdata (self), args[1] is the real arg
 		var args = new LuaValue[] { new LuaUserData("ignored"), new LuaString("real") };
-		var result = UserDataOverloadResolver.PrepareCallArguments(method, pars, args, argOffset: 1);
+		var result = UserDataOverloadResolver.PrepareCallArguments(null!, method, pars, args, argOffset: 1);
 
 		Assert.Single(result);
 		Assert.Equal("real", result[0]);
@@ -237,7 +373,7 @@ public class UserDataOverloadResolverTests
 
 		var pars = method.GetParameters();
 		var args = new LuaValue[] { new LuaNumber(1), new LuaNumber(2), new LuaNumber(3) };
-		var result = UserDataOverloadResolver.PrepareCallArguments(method, pars, args, argOffset: 0);
+		var result = UserDataOverloadResolver.PrepareCallArguments(null!, method, pars, args, argOffset: 0);
 
 		// First param is the params int[] — should contain all args
 		var paramsArray = Assert.IsType<int[]>(result[0]);

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 
 namespace AsyncLua.Values
 {
@@ -12,7 +13,33 @@ namespace AsyncLua.Values
 	public static class UserDataOverloadResolver
 	{
 		/// <summary>
+		/// Types that are injected automatically from <see cref="LuaCallingContext"/>
+		/// and should be ignored during overload resolution argument matching.
+		/// </summary>
+		private static readonly HashSet<Type> HiddenParameterTypes = new()
+		{
+			typeof(LuaCallingContext),
+			typeof(CancellationToken)
+		};
+
+		/// <summary>
+		/// Determines whether the specified CLR type is a hidden parameter type
+		/// that is injected automatically from <see cref="LuaCallingContext"/>.
+		/// </summary>
+		/// <param name="type">The CLR type to check.</param>
+		/// <returns>
+		/// <see langword="true"/> if <paramref name="type"/> is a hidden parameter type;
+		/// otherwise, <see langword="false"/>.
+		/// </returns>
+		public static bool IsHiddenParameter(Type type)
+		{
+			return HiddenParameterTypes.Contains(type);
+		}
+
+		/// <summary>
 		/// Selects the best matching overload from a set of methods, given the provided Lua arguments.
+		/// Hidden parameters (<see cref="LuaCallingContext"/> and <see cref="CancellationToken"/>)
+		/// are automatically excluded from matching.
 		/// </summary>
 		/// <param name="methods">The candidate methods (same name, different signatures).</param>
 		/// <param name="args">The Lua arguments passed from the script.</param>
@@ -25,22 +52,25 @@ namespace AsyncLua.Values
 
 			foreach (var method in methods)
 			{
-				var pars = method.GetParameters();
+				var allPars = method.GetParameters();
+				var explicitParams = allPars.Where(p => !IsHiddenParameter(p.ParameterType)).ToArray();
 				int score = 0;
 
-				int explicitParamCount = pars.Length;
+				int explicitParamCount = explicitParams.Length;
 				bool hasParams = false;
-				if (pars.Length > 0 && pars[pars.Length - 1].GetCustomAttributes(typeof(ParamArrayAttribute), false).Any())
+				if (explicitParams.Length > 0 && explicitParams[explicitParams.Length - 1]
+					.GetCustomAttributes(typeof(ParamArrayAttribute), false).Any())
 				{
 					hasParams = true;
-					explicitParamCount = pars.Length - 1;
+					explicitParamCount = explicitParams.Length - 1;
 				}
 
-				var required = pars.Count(p => !p.IsOptional && !p.GetCustomAttributes(typeof(ParamArrayAttribute), false).Any());
+				var required = explicitParams.Count(p => !p.IsOptional
+					&& !p.GetCustomAttributes(typeof(ParamArrayAttribute), false).Any());
 
 				if (args.Length < required)
 					continue;
-				if (!hasParams && args.Length > pars.Length)
+				if (!hasParams && args.Length > explicitParams.Length)
 					continue;
 
 				bool compatible = true;
@@ -50,11 +80,11 @@ namespace AsyncLua.Values
 
 					if (i < explicitParamCount)
 					{
-						targetType = pars[i].ParameterType;
+						targetType = explicitParams[i].ParameterType;
 					}
 					else if (hasParams)
 					{
-						targetType = pars[pars.Length - 1].ParameterType.GetElementType()!;
+						targetType = explicitParams[explicitParams.Length - 1].ParameterType.GetElementType()!;
 					}
 					else
 					{
@@ -78,8 +108,14 @@ namespace AsyncLua.Values
 				if (!compatible)
 					continue;
 
-				if (args.Length < pars.Length && !hasParams)
-					score += (pars.Length - args.Length) * 2;
+				// Penalty for unused optional explicit parameters.
+				if (args.Length < explicitParams.Length && !hasParams)
+					score += (explicitParams.Length - args.Length) * 2;
+
+				// Bonus for methods accepting hidden parameters (prefer methods
+				// that can receive LuaCallingContext / CancellationToken).
+				int hiddenCount = allPars.Length - explicitParams.Length;
+				score -= hiddenCount * 2;
 
 				if (score < bestScore)
 				{
@@ -98,6 +134,14 @@ namespace AsyncLua.Values
 		public static bool IsCompatible(LuaValue value, Type targetType, out int cost)
 		{
 			cost = 10;
+
+			// Hidden parameters are compatible with any Lua value (or none at all)
+			// since they are injected automatically.
+			if (IsHiddenParameter(targetType))
+			{
+				cost = 0;
+				return true;
+			}
 
 			if (value is LuaNil)
 			{
@@ -160,36 +204,56 @@ namespace AsyncLua.Values
 		/// <summary>
 		/// Prepares the CLR argument array for a method invocation,
 		/// converting Lua values to the appropriate parameter types.
+		/// Hidden parameters (<see cref="LuaCallingContext"/> and <see cref="CancellationToken"/>)
+		/// are injected automatically and do not consume Lua arguments.
 		/// </summary>
-		public static object?[] PrepareCallArguments(MethodInfo method, ParameterInfo[] parameters, LuaValue[] args, int argOffset)
+		/// <param name="ctx">The Lua calling context.</param>
+		/// <param name="method">The method to prepare arguments for.</param>
+		/// <param name="parameters">The parameter info array for the method.</param>
+		/// <param name="args">The raw Lua arguments.</param>
+		/// <param name="argOffset">
+		/// The offset into <paramref name="args"/> at which the explicit arguments start
+		/// (e.g., 1 if the first argument is the UserData instance for instance methods).
+		/// </param>
+		/// <returns>An array of CLR objects suitable for <see cref="MethodInfo.Invoke"/>.</returns>
+		public static object?[] PrepareCallArguments(LuaCallingContext ctx, MethodInfo method, ParameterInfo[] parameters, LuaValue[] args, int argOffset)
 		{
 			var hasParams = parameters.Length > 0
 				&& parameters[parameters.Length - 1].GetCustomAttributes(typeof(ParamArrayAttribute), false).Any();
-			var explicitParamCount = hasParams ? parameters.Length - 1 : parameters.Length;
 			var callArgs = new object?[parameters.Length];
+
+			int luaArgIndex = 0;
 
 			for (int i = 0; i < parameters.Length; i++)
 			{
-				var argIndex = i + argOffset;
 				var paramType = parameters[i].ParameterType;
 
-				if (hasParams && i == parameters.Length - 1)
+				if (IsHiddenParameter(paramType))
 				{
+					if (paramType == typeof(LuaCallingContext))
+						callArgs[i] = ctx;
+					else if (paramType == typeof(CancellationToken))
+						callArgs[i] = ctx.CancellationToken;
+				}
+				else if (hasParams && i == parameters.Length - 1)
+				{
+					// params — gather remaining Lua arguments.
 					var elementType = paramType.GetElementType()!;
-					var remainingCount = Math.Max(0, args.Length - argOffset - explicitParamCount);
+					var remainingCount = Math.Max(0, args.Length - argOffset - luaArgIndex);
 					var paramsArray = Array.CreateInstance(elementType, remainingCount);
 					for (int j = 0; j < remainingCount; j++)
 					{
-						var val = args[argOffset + explicitParamCount + j];
+						var val = args[argOffset + luaArgIndex + j];
 						paramsArray.SetValue(LuaValueConverter.ToClrObject(val, elementType), j);
 					}
 					callArgs[i] = paramsArray;
 				}
-				else if (argIndex < args.Length)
+				else if (argOffset + luaArgIndex < args.Length)
 				{
-					callArgs[i] = LuaValueConverter.ToClrObject(args[argIndex], paramType);
+					callArgs[i] = LuaValueConverter.ToClrObject(args[argOffset + luaArgIndex], paramType);
 					if (parameters[i].IsOut)
 						callArgs[i] = null;
+					luaArgIndex++;
 				}
 				else
 				{

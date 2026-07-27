@@ -69,7 +69,12 @@ namespace AsyncLua.Values
 		public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, params LuaValue[] args)
 		{
 			var effectiveContext = Environment is not null
-				? new LuaCallingContext(context.State, Environment)
+				? new LuaCallingContext(context.State, Environment, context.Settings)
+				{
+					Print = context.Print,
+					Warn = context.Warn,
+					CancellationToken = context.CancellationToken,
+				}
 				: context;
 
 			return AsyncLuaInterpreter.ExecuteAsync(Prototype, effectiveContext, args, closure: this);

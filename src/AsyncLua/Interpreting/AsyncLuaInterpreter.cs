@@ -124,6 +124,8 @@ namespace AsyncLua.Interpreting
 				{
 					try
 					{
+						context.CancellationToken.ThrowIfCancellationRequested();
+
 						var inst = instructions[pc];
 
 						switch (inst.Code)
