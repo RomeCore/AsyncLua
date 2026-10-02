@@ -306,6 +306,27 @@ new CoroutineLibrary().Import(this);
 		}
 
 		/// <summary>
+		/// Compiles the specified Lua code into a <see cref="CompiledLuaCode"/> object to be executed later.
+		/// </summary>
+		/// <param name="code">The Lua source code to compile.</param>
+		/// <param name="context">The calling context.</param>
+		/// <param name="sourceName">Optional source name for debugging (e.g., file name).</param>
+		/// <returns>The compiled Lua code.</returns>
+		/// <exception cref="ArgumentNullException">
+		/// Thrown if <paramref name="code"/> is <see langword="null"/>.
+		/// </exception>
+		public CompiledLuaCode Compile(string code, LuaCallingContext context, string? sourceName = null, CancellationToken cancellationToken = default)
+		{
+			if (code is null)
+				throw new ArgumentNullException(nameof(code));
+
+			var block = _parser.Parse(code);
+			var prototype = AsyncLuaCompiler.Compile(block, _compilerSettings, sourceName: sourceName);
+			context ??= CreateContext(cancellationToken: cancellationToken);
+			return new CompiledLuaCode(context, prototype);
+		}
+
+		/// <summary>
 		/// Parses and compiles the specified Lua code and returns the disassembled bytecode
 		/// as a human-readable string. Does not execute the code.
 		/// </summary>

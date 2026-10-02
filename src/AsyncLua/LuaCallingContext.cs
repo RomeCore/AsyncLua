@@ -1,5 +1,7 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
+using AsyncLua.Compiling;
 using AsyncLua.Interpreting;
 using AsyncLua.Values;
 
@@ -69,6 +71,80 @@ namespace AsyncLua
 			State = state ?? throw new ArgumentNullException(nameof(state));
 			Settings = settings ?? new InterpreterSettings();
 			Globals = globals ?? state.Globals;
+		}
+
+		/// <summary>
+		/// Parses and compiles the specified Lua code into a <see cref="CompiledLuaCode"/> bound to
+		/// this context, so that it can be executed later within this context's environment, settings
+		/// and print/warn sinks.
+		/// </summary>
+		/// <param name="code">The Lua source code to compile.</param>
+		/// <param name="sourceName">Optional source name for debugging (e.g., a file name).</param>
+		/// <returns>The compiled code, bound to this context.</returns>
+		/// <exception cref="ArgumentNullException">Thrown if <paramref name="code"/> is <see langword="null"/>.</exception>
+		public CompiledLuaCode Compile(string code, string? sourceName = null)
+		{
+			if (code is null)
+				throw new ArgumentNullException(nameof(code));
+
+			var block = State.Parser.Parse(code);
+			var prototype = AsyncLuaCompiler.Compile(block, State.CompilerSettings, sourceName: sourceName);
+			return new CompiledLuaCode(this, prototype);
+		}
+
+		/// <summary>
+		/// Parses, compiles and executes the specified Lua code within this context.
+		/// </summary>
+		/// <param name="code">The Lua source code to execute.</param>
+		/// <param name="sourceName">Optional source name for debugging (e.g., a file name).</param>
+		/// <returns>A <see cref="LuaTuple"/> containing all return values of the executed chunk.</returns>
+		/// <exception cref="ArgumentNullException">Thrown if <paramref name="code"/> is <see langword="null"/>.</exception>
+		public LuaTuple Execute(string code, string? sourceName = null)
+		{
+			return Compile(code, sourceName).Execute();
+		}
+
+		/// <summary>
+		/// Parses, compiles and executes the specified Lua code within this context asynchronously.
+		/// Required for code that uses <c>async</c>/<c>await</c>.
+		/// </summary>
+		/// <param name="code">The Lua source code to execute.</param>
+		/// <param name="sourceName">Optional source name for debugging (e.g., a file name).</param>
+		/// <returns>A task that resolves to the chunk's return values.</returns>
+		/// <exception cref="ArgumentNullException">Thrown if <paramref name="code"/> is <see langword="null"/>.</exception>
+		public Task<LuaTuple> ExecuteAsync(string code, string? sourceName = null)
+		{
+			return Compile(code, sourceName).ExecuteAsync();
+		}
+
+		/// <summary>
+		/// Invokes a Lua function within this context.
+		/// </summary>
+		/// <param name="function">The function to invoke.</param>
+		/// <param name="args">The arguments to pass to the function.</param>
+		/// <returns>The function's return values.</returns>
+		/// <exception cref="ArgumentNullException">Thrown if <paramref name="function"/> is <see langword="null"/>.</exception>
+		public LuaTuple Call(LuaFunction function, params LuaValue[] args)
+		{
+			if (function is null)
+				throw new ArgumentNullException(nameof(function));
+
+			return function.Invoke(this, args ?? []);
+		}
+
+		/// <summary>
+		/// Invokes a Lua function within this context asynchronously.
+		/// </summary>
+		/// <param name="function">The function to invoke.</param>
+		/// <param name="args">The arguments to pass to the function.</param>
+		/// <returns>A task that resolves to the function's return values.</returns>
+		/// <exception cref="ArgumentNullException">Thrown if <paramref name="function"/> is <see langword="null"/>.</exception>
+		public Task<LuaTuple> CallAsync(LuaFunction function, params LuaValue[] args)
+		{
+			if (function is null)
+				throw new ArgumentNullException(nameof(function));
+
+			return function.InvokeAsync(this, args ?? []);
 		}
 	}
 }
