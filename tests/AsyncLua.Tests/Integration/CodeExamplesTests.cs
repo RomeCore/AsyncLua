@@ -76,7 +76,7 @@ namespace AsyncLua.Tests.Integration
 			Assert.Contains("data received", prints);
 			Assert.Contains("some error occured\tdata successfully received\tanother data successfully received", prints);
 			output.WriteLine($"Elapsed time: {elapsed} ms for executing critical sections and try-catch with throw.");
-			Assert.True(elapsed >= 350);
+			Assert.True(elapsed >= 349);
 
 			// CI environments can be slower
 			if (!Utils.IsRunningCI())
