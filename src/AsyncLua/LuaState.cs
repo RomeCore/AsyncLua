@@ -114,7 +114,7 @@ namespace AsyncLua
 			new MathLibrary().Import(this);
 			new StringLibrary().Import(this);
 			new TableLibrary().Import(this);
-new CoroutineLibrary().Import(this);
+			new CoroutineLibrary().Import(this);
 			new TaskLibrary().Import(this);
 
 			return this;

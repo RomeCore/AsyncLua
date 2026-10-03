@@ -292,4 +292,106 @@ public class TaskLibraryTests
         Assert.Equal(10.0, Assert.IsType<LuaNumber>(group3.Get(1.0)).Value);
         Assert.Equal(12.0, Assert.IsType<LuaNumber>(group3.Get(2.0)).Value);
     }
+
+    // ══════════════════════════════════
+    //  task.create (TaskCompletionSource-like handle)
+    // ══════════════════════════════════
+
+    [Fact]
+    public async Task Create_SetResultThenAwait_ReturnsMultipleValues()
+    {
+        var state = CreateState();
+
+        var result = await state.ExecuteAsync(@"
+            local t = task.create()
+            t:set_result(1, 2, 3)
+            local a, b, c = await t
+            return a, b, c
+        ");
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal(1.0, Assert.IsType<LuaNumber>(result[0]).Value);
+        Assert.Equal(2.0, Assert.IsType<LuaNumber>(result[1]).Value);
+        Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[2]).Value);
+    }
+
+    [Fact]
+    public async Task Create_SetResultWithoutValues_AwaitsNil()
+    {
+        var state = CreateState();
+
+        var result = await state.ExecuteAsync(@"
+            local t = task.create()
+            t:set_result()
+            local a = await t
+            return a == nil
+        ");
+
+        Assert.True(Assert.IsType<LuaBoolean>(result.First).Value);
+    }
+
+    [Fact]
+    public async Task Create_SetErrorThenAwait_PropagatesError()
+    {
+        var state = CreateState();
+
+        var ex = await Assert.ThrowsAsync<LuaRuntimeException>(() =>
+            state.ExecuteAsync(@"
+                local t = task.create()
+                t:set_error('boom')
+                await t
+            "));
+
+        Assert.Contains("boom", ex.OriginalMessage);
+    }
+
+    [Fact]
+    public async Task Create_DefaultErrorMessage_WhenNoneGiven()
+    {
+        var state = CreateState();
+
+        var ex = await Assert.ThrowsAsync<LuaRuntimeException>(() =>
+            state.ExecuteAsync(@"
+                local t = task.create()
+                t:set_error()
+                await t
+            "));
+
+        Assert.Contains("Task failed", ex.OriginalMessage);
+    }
+
+    [Fact]
+    public async Task Create_PendingTask_CompletedFromHost_CanBeAwaited()
+    {
+        var state = CreateState();
+
+        LuaTask? captured = null;
+        state.SetGlobal("capture_task", new LuaCallbackFunction(
+            (ctx, args) =>
+            {
+                captured = Assert.IsType<LuaTask>(args[0]);
+                return LuaTuple.Empty;
+            }, "capture_task"));
+
+        await state.ExecuteAsync(@"
+            local t = task.create()
+            capture_task(t)
+        ");
+
+        Assert.NotNull(captured);
+        Assert.Equal(LuaTaskStatus.Pending, captured!.Status);
+
+        // Complete the task from the host, then await it from Lua.
+        captured.SetResult(new LuaNumber(7), new LuaString("hello"));
+        state.SetGlobal("resume_task", captured);
+
+        var result = await state.ExecuteAsync(@"
+            local a, b = await resume_task
+            return a, b
+        ");
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(7.0, Assert.IsType<LuaNumber>(result[0]).Value);
+        Assert.Equal("hello", Assert.IsType<LuaString>(result[1]).Value);
+    }
 }

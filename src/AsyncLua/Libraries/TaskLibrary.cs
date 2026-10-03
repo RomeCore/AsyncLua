@@ -120,6 +120,52 @@ namespace AsyncLua.Libraries
 					var allResults = await Task.WhenAll(allTasks);
 					return new LuaTuple(CollectResults(allResults));
 				}, "task.pararun", isAsync: true));
+
+			table.Set(new LuaString("create"), new LuaCallbackFunction(
+				(ctx, args) =>
+				{
+					// A pending task acting like a TaskCompletionSource: it can be awaited from Lua and
+					// completed later with either results or an error. There is deliberately no cancellation.
+					var task = new LuaTask();
+					task.Metatable = CreateCompletionMetatable();
+					return new LuaTuple(task);
+				}, "task.create"));
+		}
+
+		/// <summary>
+		/// Creates the metatable attached to tasks produced by <c>task.create()</c>, exposing
+		/// the completion methods <c>:set_result(...)</c> and <c>:set_error(message)</c>.
+		/// </summary>
+		private static LuaMetatable CreateCompletionMetatable()
+		{
+			var methods = new LuaTable();
+
+			methods.Set(new LuaString("set_result"), new LuaCallbackFunction(
+				(ctx, args) =>
+				{
+					if (args.Length < 1 || args[0] is not LuaTask task)
+						throw new LuaRuntimeException(
+							"task.set_result: must be called on a task created by task.create().");
+
+					task.SetResult(args.Skip(1).ToArray());
+					return LuaTuple.Empty;
+				}, "task.set_result"));
+
+			methods.Set(new LuaString("set_error"), new LuaCallbackFunction(
+				(ctx, args) =>
+				{
+					if (args.Length < 1 || args[0] is not LuaTask task)
+						throw new LuaRuntimeException(
+							"task.set_error: must be called on a task created by task.create().");
+
+					var message = args.Length > 1 ? args[1].ToString() : "Task failed.";
+					task.SetException(new LuaRuntimeException(message));
+					return LuaTuple.Empty;
+				}, "task.set_error"));
+
+			var metatable = new LuaMetatable();
+			metatable.Set(LuaMetatableEvent.Index, methods);
+			return metatable;
 		}
 
 		/// <summary>
