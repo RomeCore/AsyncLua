@@ -53,9 +53,16 @@ namespace AsyncLua.Interpreting
 		public LuaValue[]? VarArgs;
 
 		/// <summary>
-		/// Tracks the highest register index that has been written to during this frame.
-		/// Used by <see cref="OpCode.RETURN"/> with <c>B=0</c> (variable return count).
+		/// The exclusive top of the values produced by the last multiple-return
+		/// producer in this frame (an expanding <see cref="OpCode.CALL"/>,
+		/// <see cref="OpCode.AWAIT"/> or <see cref="OpCode.VARARG"/>).
 		/// </summary>
+		/// <remarks>
+		/// Consumed by <see cref="OpCode.SETLIST"/> and <see cref="OpCode.RETURN"/>
+		/// with <c>B=0</c> (variable count). Producers always assign it exactly -
+		/// it is not a high-water mark, otherwise stale registers of a nested
+		/// call would leak into the result.
+		/// </remarks>
 		public int RegisterTop;
 
 		/// <summary>

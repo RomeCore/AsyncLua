@@ -648,4 +648,42 @@ public class StressIntegrationTests
 				string [=[brackets]=]!
 			""", ext1);
 	}
+
+	[Fact]
+	public void Tables_ConstrutorExpansion()
+	{
+		var state = new LuaState().LoadDefaultLibraries();
+
+		state.SetGlobal("echo", new LuaCallbackFunction((ctx, args) =>
+		{
+			return new LuaTuple(args);
+		}, "echo"));
+
+		var result = Execute(state, """
+			local t1 = { "h", string.format("%s %s", "a", "b") }        -- expected 2
+			local t2 = { "h", (string.format("%s %s", "a", "b")) }      -- expected 2 (parens truncate)
+			local t3 = { "h", string.format("%s %s", "a", "b"), "c" }   -- expected 3
+			local t4 = { "h", echo("a", "b") }                          -- expected 3
+			local t5 = { "h", echo("a", "b"), "c" }                     -- expected 3
+			local t6 = { "h", (echo("a", "b")) }                        -- expected 2
+			return t1, t2, t3, t4, t5, t6
+			""");
+
+		var t1 = Assert.IsType<LuaTable>(result[0]);
+		var t2 = Assert.IsType<LuaTable>(result[1]);
+		var t3 = Assert.IsType<LuaTable>(result[2]);
+		var t4 = Assert.IsType<LuaTable>(result[3]);
+		var t5 = Assert.IsType<LuaTable>(result[4]);
+		var t6 = Assert.IsType<LuaTable>(result[5]);
+
+		static string?[] Strings(LuaTable table) => table.Entries.OrderBy(e => e.Key.TryToNumber())
+			.Select(v => v.Value.TryToString()).ToArray();
+
+		Assert.Equal<string?[]>(["h", "a b"], Strings(t1));
+		Assert.Equal<string?[]>(["h", "a b"], Strings(t2));
+		Assert.Equal<string?[]>(["h", "a b", "c"], Strings(t3));
+		Assert.Equal<string?[]>(["h", "a", "b"], Strings(t4));
+		Assert.Equal<string?[]>(["h", "a", "c"], Strings(t5));
+		Assert.Equal<string?[]>(["h", "a"], Strings(t6));
+	}
 }

@@ -466,7 +466,6 @@ namespace AsyncLua.Interpreting
 											// Wrap non-Lua exceptions (e.g. from faulted tasks) so Lua try/catch can handle them.
 											throw RuntimeError(ex.Message, frame.Function, pc, ex);
 										}
-
 									}
 									else
 									{
@@ -511,10 +510,14 @@ namespace AsyncLua.Interpreting
 										storeCount = 1;
 									}
 
-									// Track highest written register for RETURN B=0.
-									int top = inst.A + Math.Max(storeCount, wantResults);
-									if (top > frame.RegisterTop)
-										frame.RegisterTop = top;
+									// Publish the exact top of the produced values for multret consumers
+									// (SETLIST / RETURN with B=0). Only an expanding producer (C=0) is
+									// ever consumed that way, and the top must be exact rather than a
+									// high-water mark: nested producers inside the awaited expression
+									// would otherwise leave a stale top and leak their registers into
+									// the result.
+									if (inst.C == 0)
+										frame.RegisterTop = inst.A + storeCount;
 
 									pc++;
 									break;
@@ -903,7 +906,8 @@ namespace AsyncLua.Interpreting
 												// multi-return after AWAIT with fewer results.
 												if (inst.A + 1 < registers.Length)
 													registers[inst.A + 1] = LuaNil.Instance;
-												frame.RegisterTop = Math.Max(frame.RegisterTop, inst.A + 1);
+												// The call produces a single value (the LuaTask) at R[A].
+												frame.RegisterTop = inst.A + 1;
 											}
 											catch (LuaRuntimeException ex) when (!ex.HasPosition)
 											{
@@ -991,10 +995,10 @@ namespace AsyncLua.Interpreting
 												for (int i = storeCount; i < effectiveWant; i++)
 													registers[inst.A + i] = LuaNil.Instance;
 
-												// Update RegisterTop for RETURN B=0 to know how many values are live.
-												int top = inst.A + effectiveWant;
-												if (top > frame.RegisterTop)
-													frame.RegisterTop = top;
+												// Publish the exact top for multret consumers, but only when the
+												// caller asked for all results (C=0).
+												if (inst.C == 0)
+													frame.RegisterTop = inst.A + storeCount;
 											}
 											catch (LuaRuntimeException ex) when (!ex.HasPosition)
 											{
@@ -1035,10 +1039,10 @@ namespace AsyncLua.Interpreting
 										for (int i = storeCount; i < effectiveWant; i++)
 											registers[inst.A + i] = LuaNil.Instance;
 
-										// Update RegisterTop for RETURN B=0 to know how many values are live.
-										int top = inst.A + effectiveWant;
-										if (top > frame.RegisterTop)
-											frame.RegisterTop = top;
+										// Publish the exact top for multret consumers, but only when the
+										// caller asked for all results (C=0).
+										if (inst.C == 0)
+											frame.RegisterTop = inst.A + storeCount;
 									}
 									else
 									{
@@ -1074,16 +1078,23 @@ namespace AsyncLua.Interpreting
 										int wantResults = frame.ResultCount;
 										// If the caller wants multiple results (wantResults=0), accept all.
 										int effectiveWant = wantResults == 0 ? resultCount : wantResults;
-										for (int i = 0; i < resultCount && i < effectiveWant; i++)
+										// Never write past the caller's register array (a callee may return
+										// more values than the caller has slots for).
+										int writable = Math.Max(0, callerFrame.Registers.Length - destBase);
+										if (effectiveWant > writable)
+											effectiveWant = writable;
+										int copyCount = Math.Min(resultCount, effectiveWant);
+										for (int i = 0; i < copyCount; i++)
 											callerFrame.Registers[destBase + i] = registers[inst.A + i];
 										// Pad with nil.
-										for (int i = resultCount; i < effectiveWant; i++)
+										for (int i = copyCount; i < effectiveWant; i++)
 											callerFrame.Registers[destBase + i] = LuaNil.Instance;
 
-										// Update RegisterTop for the caller's RETURN B=0 to see these results.
-										int top = destBase + effectiveWant;
-										if (top > callerFrame.RegisterTop)
-											callerFrame.RegisterTop = top;
+										// Publish the exact top for the caller's multret consumers
+										// (SETLIST / RETURN with B=0), but only when the caller asked for
+										// all results.
+										if (wantResults == 0)
+											callerFrame.RegisterTop = destBase + copyCount;
 
 										// Restore caller state.
 										pc = frame.ReturnPC;
@@ -1214,10 +1225,10 @@ namespace AsyncLua.Interpreting
 											registers[inst.A + i] = LuaNil.Instance;
 									}
 
-									// Track highest written register for RETURN B=0.
-									int top = inst.A + want;
-									if (top > frame.RegisterTop)
-										frame.RegisterTop = top;
+									// Publish the exact top for multret consumers, but only when the
+									// expansion was requested (B=0).
+									if (inst.B == 0)
+										frame.RegisterTop = inst.A + want;
 
 									pc++;
 									break;

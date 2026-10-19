@@ -225,7 +225,12 @@ namespace AsyncLua.Compiling
 			{
 				int destReg = AllocateRegister();
 				actualValueRegs[i] = destReg;
-				CompileExpression(node.Values[i], destReg);
+				// Only the last value may expand (handled below when it is the single
+				// value of a multi-target assignment); the others yield one value.
+				if (i < valueCount - 1)
+					CompileExpressionSingle(node.Values[i], destReg);
+				else
+					CompileExpression(node.Values[i], destReg);
 
 				// If there are more targets than values, and the value is a function call,
 				// vararg, or await expression, expand it to fill the targets
@@ -472,16 +477,13 @@ namespace AsyncLua.Compiling
 			for (int i = 0; i < valueCount; i++)
 			{
 				int reg = baseReg + i;
-				int instrBefore = _instructions.Count;
-				CompileExpression(node.Values[i], reg);
 
-				// Non-last await values: patch to C=1 (no expansion).
-				if (i < valueCount - 1 && node.Values[i] is AwaitExpressionNode)
-					PatchLastAwaitToSingle(instrBefore);
-				// Non-last call/vararg values: patch to C=1 (no expansion).
-				if (i < valueCount - 1 &&
-					(node.Values[i] is FunctionCallNode || node.Values[i] is VarArgumentNode))
-					PatchLastCallToSingle(instrBefore);
+				// Only the last value may expand; every other one is truncated to
+				// a single value.
+				if (i < valueCount - 1)
+					CompileExpressionSingle(node.Values[i], reg);
+				else
+					CompileExpression(node.Values[i], reg);
 			}
 
 			// For the last value: if it's a call/vararg, patch its CALL to C=0 (expand).
@@ -503,39 +505,6 @@ namespace AsyncLua.Compiling
 			// B>0: exact count.
 			ushort returnCount = lastExpands ? (ushort)0 : (ushort)valueCount;
 			Emit(OpCode.RETURN, (byte)baseReg, returnCount);
-		}
-
-		/// <summary>
-		/// Finds the last AWAIT instruction emitted since <paramref name="startIndex"/>
-		/// and changes its C operand to 1 (non-expanding).
-		/// </summary>
-		private void PatchLastAwaitToSingle(int startIndex)
-		{
-			for (int j = _instructions.Count - 1; j >= startIndex; j--)
-			{
-				var inst = _instructions[j];
-				if (inst.Code == OpCode.AWAIT)
-				{
-					_instructions[j] = new Instruction(inst.Code, inst.A, inst.B, 1, inst.Flags);
-					return;
-				}
-			}
-		}
-
-		/// <summary>
-		/// Finds the last CALL instruction emitted and changes its C operand to 1 (non-expanding).
-		/// </summary>
-		private void PatchLastCallToSingle(int startIndex)
-		{
-			for (int j = _instructions.Count - 1; j >= startIndex; j--)
-			{
-				var inst = _instructions[j];
-				if (inst.Code == OpCode.CALL)
-				{
-					_instructions[j] = new Instruction(inst.Code, inst.A, inst.B, 1, inst.Flags);
-					return;
-				}
-			}
 		}
 
 		/// <summary>
@@ -730,9 +699,9 @@ namespace AsyncLua.Compiling
 			int slotsToFill = Math.Min(exprCount, 3);
 			int lastIdx = slotsToFill - 1; // -1 if slotsToFill == 0
 
-			// Compile all but the last expression normally (each with C=1).
+			// Compile all but the last expression as single values.
 			for (int i = 0; i < slotsToFill - 1; i++)
-				CompileExpression(node.Expressions[i], baseReg + i);
+				CompileExpressionSingle(node.Expressions[i], baseReg + i);
 
 			// Compile the last expression. If it's a call/vararg, allow it to expand (C=0)
 			// so multiple return values populate the remaining slots (standard Lua for-in semantics).
@@ -1130,8 +1099,54 @@ namespace AsyncLua.Compiling
 						Emit(OpCode.VARARG, (byte)destReg, 0);
 						break;
 
+					case ParenthesizedExpressionNode paren:
+						CompileExpressionSingle(paren.Expression, destReg);
+						break;
+
 					default:
 						throw new LuaCompilerException($"Unknown expression type: {expr.GetType().Name}", expr.Position);
+				}
+			}
+			finally
+			{
+				PopPosition();
+			}
+		}
+
+		/// <summary>
+		/// Compiles an expression that must produce exactly one value, truncating
+		/// multiple-return producers (calls, varargs and awaits).
+		/// </summary>
+		/// <remarks>
+		/// Lua truncates a multiple-return expression to a single value everywhere
+		/// except in a handful of positions (the last field of a table constructor,
+		/// the last value of a return list, the last argument of a call, ...). Every
+		/// other position - including a parenthesized expression - must use this
+		/// method, otherwise the extra values spill into the neighbouring registers.
+		/// </remarks>
+		private void CompileExpressionSingle(ExpressionNode expr, int destReg)
+		{
+			PushPosition(expr.Position);
+			try
+			{
+				switch (expr)
+				{
+					case FunctionCallNode call:
+						CompileFunctionCall(call, destReg);
+						break;
+
+					case VarArgumentNode:
+						// B=1 instead of B=0: take only the first vararg.
+						Emit(OpCode.VARARG, (byte)destReg, 1);
+						break;
+
+					case AwaitExpressionNode awaitExpr:
+						CompileAwaitExpressionSingle(awaitExpr, destReg);
+						break;
+
+					default:
+						CompileExpression(expr, destReg);
+						break;
 				}
 			}
 			finally
@@ -1279,9 +1294,11 @@ namespace AsyncLua.Compiling
 			}
 
 			// Compile fixed explicit arguments (skip self slot if method call, skip vararg).
+			// A non-trailing vararg would otherwise expand over the registers of the
+			// arguments that follow it, so arguments are compiled as single values.
 			int argOffset = node.Method is not null ? 1 : 0;
 			for (int i = 0; i < nonVarargExplicitCount; i++)
-				CompileExpression(node.Arguments[i], argBase + argOffset + i);
+				CompileExpressionSingle(node.Arguments[i], argBase + argOffset + i);
 
 			OpFlags callFlags = OpFlags.None;
 			if (lastIsVararg)
@@ -1337,8 +1354,12 @@ namespace AsyncLua.Compiling
 					(pair.Value is FunctionCallNode || pair.Value is VarArgumentNode);
 
 				int valueReg = AllocateRegister();
-				int instrBefore = _instructions.Count;
-				CompileExpression(pair.Value, valueReg);
+				// Only an expanding trailing field may keep its multiple results;
+				// every other field is truncated to one value.
+				if (canExpand)
+					CompileExpression(pair.Value, valueReg);
+				else
+					CompileExpressionSingle(pair.Value, valueReg);
 
 				if (canExpand)
 				{
@@ -1425,6 +1446,21 @@ namespace AsyncLua.Compiling
 				ushort wantResults = (ushort)(i == count - 1 ? 0 : 1);
 				Emit(OpCode.AWAIT, (byte)reg, 0, wantResults);
 			}
+		}
+
+		/// <summary>
+		/// Compiles an await expression that must produce exactly one value
+		/// (every AWAIT is emitted with C=1 instead of the expanding C=0).
+		/// </summary>
+		private void CompileAwaitExpressionSingle(AwaitExpressionNode node, int destReg)
+		{
+			int count = node.Expressions.Length;
+
+			for (int i = 0; i < count; i++)
+				CompileExpression(node.Expressions[i], destReg + i);
+
+			for (int i = 0; i < count; i++)
+				Emit(OpCode.AWAIT, (byte)(destReg + i), 0, 1);
 		}
 
 		// ═══════════════════════════════════════════════════════════════

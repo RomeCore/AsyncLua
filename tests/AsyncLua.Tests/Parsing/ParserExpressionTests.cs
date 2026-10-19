@@ -135,18 +135,23 @@ public class ParserExpressionTests
 	// ── Parenthesized expressions ────────────────────────────────────
 
 	[Fact]
-	public void Parse_ParenthesizedExpression_ReturnsInner()
+	public void Parse_ParenthesizedExpression_WrapsInner()
 	{
+		// Parentheses are semantically meaningful (they truncate multiple returns),
+		// so the node is preserved instead of being flattened.
 		var expr = ParseExpression("(42)");
-		var literal = Assert.IsType<LiteralNode>(expr);
+		var paren = Assert.IsType<ParenthesizedExpressionNode>(expr);
+		var literal = Assert.IsType<LiteralNode>(paren.Expression);
 		Assert.Equal(42.0, ((LuaNumber)literal.Literal).Value);
 	}
 
 	[Fact]
-	public void Parse_NestedParentheses_ReturnsInner()
+	public void Parse_NestedParentheses_WrapsEachLevel()
 	{
-		var expr = ParseExpression("((true))");
-		var literal = Assert.IsType<LiteralNode>(expr);
+		var outer = ParseExpression("((true))");
+		var outerParen = Assert.IsType<ParenthesizedExpressionNode>(outer);
+		var innerParen = Assert.IsType<ParenthesizedExpressionNode>(outerParen.Expression);
+		var literal = Assert.IsType<LiteralNode>(innerParen.Expression);
 		Assert.IsType<LuaBoolean>(literal.Literal);
 		Assert.True(((LuaBoolean)literal.Literal).Value);
 	}
@@ -270,7 +275,8 @@ public class ParserExpressionTests
 		var expr = ParseExpression("(1 + 2) * 3");
 		var bin = Assert.IsType<BinaryOperatorNode>(expr);
 		Assert.Equal(BinaryOperatorType.Multiply, bin.Operator);
-		var left = Assert.IsType<BinaryOperatorNode>(bin.Left);
+		var paren = Assert.IsType<ParenthesizedExpressionNode>(bin.Left);
+		var left = Assert.IsType<BinaryOperatorNode>(paren.Expression);
 		Assert.Equal(BinaryOperatorType.Add, left.Operator);
 	}
 

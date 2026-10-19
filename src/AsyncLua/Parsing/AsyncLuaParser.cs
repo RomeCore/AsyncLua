@@ -292,7 +292,12 @@ namespace AsyncLua.Parsing
 					c => c.Rule("table_constructor"),
 					c => c.Rule("vararg_expr"),
 					c => c.Rule("identifier_expr"),
-					c => c.Literal("(").Rule("expression").Literal(")").TransformSelect(1));
+					c => c.Literal("(").Rule("expression").Literal(")")
+						.Transform(v => new ParenthesizedExpressionNode
+						{
+							Expression = v.GetValue<ExpressionNode>(1),
+							Position = CodePositionalInfo.From(v)
+						}));
 
 			// ── Postfix (calls, indexing, member access) ────────────────
 
