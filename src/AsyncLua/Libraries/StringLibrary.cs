@@ -101,9 +101,9 @@ namespace AsyncLua.Libraries
 					var s = args[0].ToString();
 					var len = s.Length;
 
-					int start = NormaliseIndex((int)((LuaNumber)args[1]).Value, len);
-					int endIdx = args.Length > 2
-						? NormaliseEndIndex((int)((LuaNumber)args[2]).Value, len)
+					int start = NormaliseIndex((int)CheckInteger(args, 1, "sub"), len);
+					int endIdx = HasValue(args, 2)
+						? NormaliseEndIndex((int)CheckInteger(args, 2, "sub"), len)
 						: len;
 
 					if (start > endIdx || start > len || endIdx < 1)
@@ -126,13 +126,13 @@ namespace AsyncLua.Libraries
 					var s = args[0].ToString();
 					var len = s.Length;
 
-					int pi = args.Length > 1 ? (int)((LuaNumber)args[1]).Value : 1;
+					int pi = HasValue(args, 1) ? (int)CheckInteger(args, 1, "byte") : 1;
 					int posi = NormaliseIndex(pi, len);
 					int pose;
 
 					if (args.Length > 2)
 					{
-						pose = NormaliseEndIndex((int)((LuaNumber)args[2]).Value, len);
+						pose = NormaliseEndIndex((int)CheckInteger(args, 2, "byte"), len);
 					}
 					else
 					{
@@ -163,7 +163,7 @@ namespace AsyncLua.Libraries
 					var chars = new char[args.Length];
 					for (int i = 0; i < args.Length; i++)
 					{
-						int c = (int)((LuaNumber)args[i]).Value;
+						int c = (int)CheckInteger(args, i, "char");
 						if (c < 0 || c > 255)
 							throw new LuaRuntimeException($"bad argument #{i + 1} to 'char' (value out of range)");
 						chars[i] = (char)c;
@@ -206,11 +206,11 @@ namespace AsyncLua.Libraries
 		table.Set(new LuaString("rep"), new LuaCallbackFunction(
 				(ctx, args) =>
 				{
-					if (args.Length < 2)
+					if (args.Length < 1)
 						throw new LuaRuntimeException("bad argument #1 to 'rep' (string expected, got no value)");
 
 					var s = args[0].ToString();
-					var n = (int)((LuaNumber)args[1]).Value;
+					var n = (int)CheckInteger(args, 1, "rep");
 					string sep = args.Length > 2 ? args[2].ToString() : "";
 
 					if (n <= 0 || (s.Length == 0 && sep.Length == 0))
@@ -254,7 +254,7 @@ namespace AsyncLua.Libraries
 
 					var s = args[0].ToString();
 					var pattern = args[1].ToString();
-					int init = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : 1;
+					int init = HasValue(args, 2) ? (int)CheckInteger(args, 2, "find") : 1;
 					bool plain = args.Length > 3 && args[3].ToBoolean();
 
 					return LuaPatternMatcher.Find(s, pattern, init, plain);
@@ -268,7 +268,7 @@ namespace AsyncLua.Libraries
 
 					var s = args[0].ToString();
 					var pattern = args[1].ToString();
-					int init = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : 1;
+					int init = HasValue(args, 2) ? (int)CheckInteger(args, 2, "match") : 1;
 
 					return LuaPatternMatcher.Match(s, pattern, init);
 				}, "string.match"));
@@ -281,7 +281,7 @@ namespace AsyncLua.Libraries
 
 					var s = args[0].ToString();
 					var pattern = args[1].ToString();
-					int init = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : 1;
+					int init = HasValue(args, 2) ? (int)CheckInteger(args, 2, "gmatch") : 1;
 
 					return new LuaTuple(LuaPatternMatcher.GMatch(s, pattern, init));
 				}, "string.gmatch"));
@@ -295,7 +295,7 @@ namespace AsyncLua.Libraries
 					var s = args[0].ToString();
 					var pattern = args[1].ToString();
 					var repl = args[2];
-					int maxReplacements = args.Length > 3 ? (int)((LuaNumber)args[3]).Value : int.MaxValue;
+					int maxReplacements = HasValue(args, 3) ? (int)CheckInteger(args, 3, "gsub") : int.MaxValue;
 
 					return LuaPatternMatcher.GSub(s, pattern, repl, maxReplacements, ctx);
 				}, "string.gsub"));
@@ -309,14 +309,13 @@ namespace AsyncLua.Libraries
 						throw new LuaRuntimeException("bad argument #1 to 'format' (string expected, got no value)");
 
 					var format = args[0].ToString();
-					var fmtArgs = new object[args.Length - 1];
+
+					// Keep the Lua values: a format conversion decides how to read its argument,
+					// so a nil must not be flattened into the string "nil" beforehand.
+					var fmtArgs = new LuaValue[args.Length - 1];
 					for (int i = 1; i < args.Length; i++)
-					{
-						if (args[i] is LuaNumber num)
-							fmtArgs[i - 1] = num.Value;
-						else
-							fmtArgs[i - 1] = args[i].ToString();
-					}
+						fmtArgs[i - 1] = args[i];
+
 					return new LuaTuple(new LuaString(PrintfFormat(format, fmtArgs)));
 				}, "string.format"));
 
@@ -360,7 +359,7 @@ namespace AsyncLua.Libraries
 
 					var fmt = args[0].ToString();
 					var data = args[1].ToString();
-					int pos = args.Length > 2 ? (int)((LuaNumber)args[2]).Value : 1;
+					int pos = HasValue(args, 2) ? (int)CheckInteger(args, 2, "unpack") : 1;
 
 					return StringUnpack(fmt, data, pos);
 				}, "string.unpack"));
@@ -397,7 +396,7 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 		//  string.format implementation (extends C printf syntax)
 		// ──────────────────────────────────────────────────────────────
 
-		private static string PrintfFormat(string format, object[] args)
+		private static string PrintfFormat(string format, LuaValue[] args)
 		{
 			int argIndex = 0;
 			var result = new StringBuilder(format.Length);
@@ -445,10 +444,7 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 					}
 
 					if (argIndex >= args.Length)
-					{
-						result.Append("%?");
-						continue;
-					}
+						throw new LuaRuntimeException($"bad argument #{argIndex + 2} to 'format' (no value)");
 
 					var arg = args[argIndex++];
 
@@ -479,35 +475,35 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 						case 'd':
 						case 'i':
 							{
-								long intVal = ConvertToInt64(arg);
+								long intVal = ToFormatInteger(arg, argIndex + 1);
 								formatted = FormatInt(intVal, flags, width, false);
 								break;
 							}
 
 						case 'u':
 							{
-								long intVal = ConvertToInt64(arg);
+								long intVal = ToFormatInteger(arg, argIndex + 1);
 								formatted = FormatInt(intVal, flags, width, true);
 								break;
 							}
 
 						case 'o':
 							{
-								long intVal = ConvertToInt64(arg);
+								long intVal = ToFormatInteger(arg, argIndex + 1);
 								formatted = FormatOctal(intVal, flags, width);
 								break;
 							}
 
 						case 'x':
 							{
-								long intVal = ConvertToInt64(arg);
+								long intVal = ToFormatInteger(arg, argIndex + 1);
 								formatted = FormatHex(intVal, flags, width, false);
 								break;
 							}
 
 						case 'X':
 							{
-								long intVal = ConvertToInt64(arg);
+								long intVal = ToFormatInteger(arg, argIndex + 1);
 								formatted = FormatHex(intVal, flags, width, true);
 								break;
 							}
@@ -515,7 +511,7 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 						case 'f':
 						case 'F':
 							{
-								double d = Convert.ToDouble(arg);
+								double d = ToFormatDouble(arg, argIndex + 1);
 								formatted = FormatFloat(d, flags, width, precision, spec);
 								break;
 							}
@@ -523,7 +519,7 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 						case 'e':
 						case 'E':
 							{
-								double d = Convert.ToDouble(arg);
+								double d = ToFormatDouble(arg, argIndex + 1);
 								formatted = FormatFloat(d, flags, width, precision, spec);
 								break;
 							}
@@ -531,7 +527,7 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 						case 'g':
 						case 'G':
 							{
-								double d = Convert.ToDouble(arg);
+								double d = ToFormatDouble(arg, argIndex + 1);
 								formatted = FormatFloat(d, flags, width, precision, spec);
 								break;
 							}
@@ -539,14 +535,14 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 						case 'a':
 						case 'A':
 							{
-								double d = Convert.ToDouble(arg);
+								double d = ToFormatDouble(arg, argIndex + 1);
 								formatted = FormatHexFloat(d, spec == 'A');
 								break;
 							}
 
 						case 'c':
 							{
-								long intVal = ConvertToInt64(arg);
+								long intVal = ToFormatInteger(arg, argIndex + 1);
 								formatted = ((char)intVal).ToString();
 								break;
 							}
@@ -584,15 +580,90 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 			return result.ToString();
 		}
 
+		/// <summary>
+		/// Reads a numeric argument the way <c>luaL_checkinteger</c> does: numbers and numeric
+		/// strings are accepted, everything else raises a Lua error. A raw CLR cast would let an
+		/// <see cref="InvalidCastException"/> escape past <c>pcall</c>.
+		/// </summary>
+		private static long CheckInteger(LuaValue[] args, int index, string functionName)
+		{
+			if (index >= args.Length)
+				throw new LuaRuntimeException($"bad argument #{index + 1} to '{functionName}' (number expected, got no value)");
+
+			switch (args[index])
+			{
+				case LuaNumber number:
+					return (long)number.Value;
+				case LuaString str when long.TryParse(str.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed):
+					return parsed;
+				case LuaString:
+					throw new LuaRuntimeException($"bad argument #{index + 1} to '{functionName}' (number expected, got string)");
+				default:
+					throw new LuaRuntimeException($"bad argument #{index + 1} to '{functionName}' (number expected, got {args[index].TypeName})");
+			}
+		}
+
+		/// <summary>
+		/// Tells whether an optional argument is present: <c>luaL_opt*</c> treats both "not passed"
+		/// and an explicit <c>nil</c> as "use the default".
+		/// </summary>
+		private static bool HasValue(LuaValue[] args, int index) =>
+			index < args.Length && args[index] is not LuaNil;
+
+		/// <summary>
+		/// Reads the integer argument of a <c>string.format</c> conversion at the given Lua
+		/// argument position (already 1-based).
+		/// </summary>
+		private static long ToFormatInteger(LuaValue arg, int position)
+		{
+			switch (arg)
+			{
+				case LuaNumber number:
+					return (long)number.Value;
+				case LuaString str:
+					if (long.TryParse(str.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed))
+						return parsed;
+					if (double.TryParse(str.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedFloat))
+						return (long)parsedFloat;
+					throw new LuaRuntimeException($"bad argument #{position} to 'format' (number expected, got string)");
+				default:
+					throw new LuaRuntimeException($"bad argument #{position} to 'format' (number expected, got {arg.TypeName})");
+			}
+		}
+
+		/// <summary>
+		/// Reads the floating-point argument of a <c>string.format</c> conversion.
+		/// </summary>
+		private static double ToFormatDouble(LuaValue arg, int position)
+		{
+			switch (arg)
+			{
+				case LuaNumber number:
+					return number.Value;
+				case LuaString str when double.TryParse(str.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed):
+					return parsed;
+				case LuaString:
+					throw new LuaRuntimeException($"bad argument #{position} to 'format' (number expected, got string)");
+				default:
+					throw new LuaRuntimeException($"bad argument #{position} to 'format' (number expected, got {arg.TypeName})");
+			}
+		}
+
 		private static long ConvertToInt64(object arg)
 		{
 			if (arg is double d)
 				return (long)d;
 			if (arg is int i) return i;
 			if (arg is long l) return l;
-			if (arg is string s && long.TryParse(s, out long parsed))
-				return parsed;
-			return (long)Convert.ToDouble(arg);
+			if (arg is string s)
+			{
+				if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed))
+					return parsed;
+				if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedFloat))
+					return (long)parsedFloat;
+				throw new LuaRuntimeException("bad argument to 'pack' (number expected, got string)");
+			}
+			throw new LuaRuntimeException($"bad argument to 'pack' (number expected, got {arg?.GetType().Name ?? "nil"})");
 		}
 
 		private static string FormatInt(long value, string flags, string width, bool unsigned)

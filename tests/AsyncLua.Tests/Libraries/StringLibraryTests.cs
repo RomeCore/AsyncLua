@@ -973,4 +973,141 @@ public class StringLibraryTests
 		var result = state.Execute("return 'a b c':len()");
 		Assert.Equal(5.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
+
+	// ── argument checking (pcall-safe errors) ──────────────────────
+
+	[Fact]
+	public void Format_NilForIntegerSpecifier_RaisesCatchableError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local ok, err = pcall(string.format, '%d', nil)
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		var message = Assert.IsType<LuaString>(result[1]).Value;
+		Assert.Contains("bad argument #2", message);
+		Assert.Contains("got nil", message);
+	}
+
+	[Fact]
+	public void Format_NilForFloatSpecifier_RaisesCatchableError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local ok, err = pcall(string.format, '%.2f', nil)
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		Assert.Contains("bad argument #2", Assert.IsType<LuaString>(result[1]).Value);
+	}
+
+	[Fact]
+	public void Format_MissingArgument_RaisesCatchableError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local ok, err = pcall(string.format, '%d %d', 1)
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		var message = Assert.IsType<LuaString>(result[1]).Value;
+		Assert.Contains("bad argument #3", message);
+		Assert.Contains("no value", message);
+	}
+
+	[Fact]
+	public void Format_NumericStrings_AreAccepted()
+	{
+		var state = CreateState();
+		var decimalResult = state.Execute("return string.format('%d', '42')");
+		Assert.Equal("42", Assert.IsType<LuaString>(decimalResult.First).Value);
+
+		var hexResult = state.Execute("return string.format('%x', '255')");
+		Assert.Equal("ff", Assert.IsType<LuaString>(hexResult.First).Value);
+	}
+
+	[Fact]
+	public void Rep_NilCount_RaisesCatchableError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local ok, err = pcall(string.rep, 'a', nil)
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		var message = Assert.IsType<LuaString>(result[1]).Value;
+		Assert.Contains("bad argument #2", message);
+		Assert.Contains("got nil", message);
+	}
+
+	[Fact]
+	public void Rep_MissingCount_RaisesCatchableError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local ok, err = pcall(string.rep, 'a')
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		var message = Assert.IsType<LuaString>(result[1]).Value;
+		Assert.Contains("bad argument #2", message);
+		Assert.Contains("no value", message);
+	}
+
+	[Fact]
+	public void Sub_NilIndex_RaisesCatchableError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local ok, err = pcall(string.sub, 'abc', nil)
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		var message = Assert.IsType<LuaString>(result[1]).Value;
+		Assert.Contains("bad argument #2", message);
+		Assert.Contains("got nil", message);
+	}
+
+	[Fact]
+	public void Sub_ExplicitNilEnd_FallsBackToEndOfString()
+	{
+		var state = CreateState();
+		var result = state.Execute("return string.sub('hello', 2, nil)");
+		Assert.Equal("ello", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	[Fact]
+	public void Match_ExplicitNilInit_FallsBackToStart()
+	{
+		var state = CreateState();
+		var result = state.Execute("return string.match('abc', 'b', nil)");
+		Assert.Equal("b", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	[Fact]
+	public void Char_NilArgument_RaisesCatchableError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local ok, err = pcall(string.char, 65, nil)
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		var message = Assert.IsType<LuaString>(result[1]).Value;
+		Assert.Contains("bad argument #2", message);
+		Assert.Contains("got nil", message);
+	}
+
+	[Fact]
+	public void Pack_NonNumericString_RaisesCatchableError()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local ok, err = pcall(string.pack, 'i4', 'abc')
+			return ok, err
+		");
+		Assert.Equal(LuaBoolean.False, result[0]);
+		Assert.Contains("number expected", Assert.IsType<LuaString>(result[1]).Value);
+	}
 }
