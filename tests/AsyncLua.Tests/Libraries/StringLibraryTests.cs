@@ -406,6 +406,114 @@ public class StringLibraryTests
 		Assert.IsType<LuaNil>(notFound.First);
 	}
 
+	// ── bracket classes ────────────────────────────────────────────
+
+	[Fact]
+	public void Match_CaptureAroundNegatedClass_Matches()
+	{
+		var state = CreateState();
+		var result = state.Execute("return string.match('abc', '([^z]+)')");
+		Assert.Equal("abc", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	[Fact]
+	public void Match_CaptureAroundNegatedClass_ExcludesTheNegatedCharacter()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"return string.match('a\nb', '([^\n]+)')");
+		Assert.Equal("a", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	[Fact]
+	public void Match_CaptureAroundNegatedClass_NotAtPatternStart()
+	{
+		var state = CreateState();
+		var result = state.Execute("return string.match('a/b/c', '([^/]+)$')");
+		Assert.Equal("c", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	[Fact]
+	public void Match_TsvLineWithNegatedClasses_ReturnsAllCaptures()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"return string.match('12\t3\tfoo/bar.txt', '^([^\t]+)\t([^\t]+)\t(.*)$')");
+		Assert.Equal("12", Assert.IsType<LuaString>(result[0]).Value);
+		Assert.Equal("3", Assert.IsType<LuaString>(result[1]).Value);
+		Assert.Equal("foo/bar.txt", Assert.IsType<LuaString>(result[2]).Value);
+	}
+
+	[Fact]
+	public void Match_PositiveClassAndRangeInsideCapture_StillMatch()
+	{
+		var state = CreateState();
+		var result = state.Execute("return string.match('abc123', '([a-c]+)(%d+)')");
+		Assert.Equal("abc", Assert.IsType<LuaString>(result[0]).Value);
+		Assert.Equal("123", Assert.IsType<LuaString>(result[1]).Value);
+	}
+
+	[Fact]
+	public void Match_LiteralClosingBracketClass_MatchesClosingBracket()
+	{
+		var state = CreateState();
+		var equals = state.Execute("return string.match(']', '[]]')");
+		Assert.Equal("]", Assert.IsType<LuaString>(equals.First).Value);
+
+		var negated = state.Execute("return string.match(']', '[^]]')");
+		Assert.IsType<LuaNil>(negated.First);
+	}
+
+	[Fact]
+	public void Match_CaretNotAtClassStart_IsLiteral()
+	{
+		var state = CreateState();
+		var result = state.Execute("return string.match('^', '[a^]')");
+		Assert.Equal("^", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	[Fact]
+	public void GMatch_CaptureAroundNegatedClass_IteratesLines()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"
+			local t = {}
+			for line in string.gmatch('a\nb\nc', '([^\n]+)') do
+				t[#t + 1] = line
+			end
+			return #t, t[1], t[2], t[3]
+		");
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		Assert.Equal("a", Assert.IsType<LuaString>(result[1]).Value);
+		Assert.Equal("b", Assert.IsType<LuaString>(result[2]).Value);
+		Assert.Equal("c", Assert.IsType<LuaString>(result[3]).Value);
+	}
+
+	[Fact]
+	public void GSub_CaptureAroundNegatedClass_ReplacesEverySegment()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"return string.gsub('12\t3', '([^\t]+)', 'X')");
+		Assert.Equal("X\tX", Assert.IsType<LuaString>(result[0]).Value);
+		Assert.Equal(2.0, Assert.IsType<LuaNumber>(result[1]).Value);
+	}
+
+	[Fact]
+	public void Find_FrontierAtEndOfString_Matches()
+	{
+		var state = CreateState();
+		var result = state.Execute(@"return string.find('abc', '%f[%z]')");
+		Assert.Equal(4.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[1]).Value);
+	}
+
+	[Fact]
+	public void Find_EndAnchor_MatchesAtEndOfString()
+	{
+		var state = CreateState();
+		var result = state.Execute("return string.find('abc', '$')");
+		Assert.Equal(4.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[1]).Value);
+	}
+
 	// ── string.gmatch ───────────────────────────────────────────────
 
 	[Fact]

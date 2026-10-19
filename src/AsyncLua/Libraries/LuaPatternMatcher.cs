@@ -83,40 +83,50 @@ namespace AsyncLua.Libraries
 		private static bool IsHexDigit(char c) =>
 			(c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 
-		private static bool MatchBracketClass(int c, string p, int ec, bool checkRange)
+		/// <summary>
+		/// Matches a single character against a bracket class <c>[...]</c>.
+		/// </summary>
+		/// <param name="c">The character code to test.</param>
+		/// <param name="pattern">The whole pattern.</param>
+		/// <param name="start">The index of the opening <c>'['</c>.</param>
+		/// <param name="end">The index of the closing <c>']'</c>.</param>
+		/// <remarks>
+		/// Both indices are absolute positions in <paramref name="pattern"/> - the class is not a
+		/// substring, so the scan must begin at <paramref name="start"/> instead of at index 0.
+		/// </remarks>
+		private static bool MatchBracketClass(int c, string pattern, int start, int end)
 		{
 			bool sig = true;
-			int idx = 0; // skip '['
-			if (idx + 1 < p.Length && p[idx + 1] == '^')
+			int idx = start + 1; // first char after '['
+
+			if (idx < end && pattern[idx] == '^')
 			{
 				sig = false;
 				idx++; // skip '^'
 			}
-			// Move to first char after '['
-			idx++;
-			while (idx < ec)
+
+			while (idx < end)
 			{
-				if (p[idx] == L_ESC)
+				if (pattern[idx] == L_ESC)
 				{
 					idx++;
-					if (idx < ec && MatchClass(c, (int)p[idx]))
+					if (idx < end && MatchClass(c, pattern[idx]))
 						return sig;
 				}
-				else if (idx + 2 < ec && p[idx + 1] == '-')
+				else if (idx + 2 < end && pattern[idx + 1] == '-')
 				{
-					// range a-z
-					int start = p[idx];
-					int end = p[idx + 2];
-					if (start <= c && c <= end)
+					// range: a-z
+					if (pattern[idx] <= c && c <= pattern[idx + 2])
 						return sig;
 					idx += 2;
 				}
-				else if (p[idx] == c)
+				else if (pattern[idx] == c)
 				{
 					return sig;
 				}
 				idx++;
 			}
+
 			return !sig;
 		}
 
@@ -135,15 +145,22 @@ namespace AsyncLua.Libraries
 				case '[':
 				{
 					if (p < ms.PatternEnd && ms.Pattern[p] == '^') p++;
-					do
+
+					while (true)
 					{
 						if (p >= ms.PatternEnd)
 							throw new LuaRuntimeException("malformed pattern (missing ']')");
-						if (ms.Pattern[p] == L_ESC && p < ms.PatternEnd - 1)
-							p++; // skip escapes
+
+						if (ms.Pattern[p] == L_ESC && p + 1 < ms.PatternEnd)
+							p++; // skip the escaped character
+
 						p++;
-					} while (p < ms.PatternEnd && ms.Pattern[p - 1] != ']');
-					return p; // points after ']'
+
+						// A ']' right after '[' or '[^' is a literal member, not the terminator,
+						// so the terminator is only the ']' that follows a consumed member.
+						if (p < ms.PatternEnd && ms.Pattern[p] == ']')
+							return p + 1; // points after ']'
+					}
 				}
 				default:
 					return p;
@@ -180,7 +197,7 @@ namespace AsyncLua.Libraries
 			{
 				case '.': return true; // any char
 				case L_ESC: return MatchClass(c, (int)ms.Pattern[p + 1]);
-				case '[': return MatchBracketClass(c, ms.Pattern, ep - 1, true);
+				case '[': return MatchBracketClass(c, ms.Pattern, p, ep - 1);
 				default: return (ms.Pattern[p] == c);
 			}
 		}
@@ -350,8 +367,9 @@ namespace AsyncLua.Libraries
 										throw new LuaRuntimeException("missing '[' after '%f' in pattern");
 									int ep = ClassEnd(ms, p);
 									char previous = (s == ms.SourceStart) ? '\0' : ms.Source[s - 1];
-									if (!MatchBracketClass(previous, ms.Pattern, ep - 1, true) &&
-										MatchBracketClass(ms.Source[s], ms.Pattern, ep - 1, true))
+									char current = (s >= ms.SourceEnd) ? '\0' : ms.Source[s];
+									if (!MatchBracketClass(previous, ms.Pattern, p, ep - 1) &&
+										MatchBracketClass(current, ms.Pattern, p, ep - 1))
 									{
 										p = ep;
 										goto init;
@@ -589,8 +607,7 @@ namespace AsyncLua.Libraries
 							result.AddRange(PushCaptures(ms, s, res.Value));
 						return new LuaTuple(result.ToArray());
 					}
-					s++;
-				} while (s < sourceEnd && !anchor);
+				} while (s++ < sourceEnd && !anchor);
 
 				return new LuaTuple(LuaNil.Instance);
 			}
@@ -627,8 +644,7 @@ namespace AsyncLua.Libraries
 						return new LuaTuple(new LuaString(source.Substring(s, res.Value - s)));
 					return new LuaTuple(captures.ToArray());
 				}
-				s++;
-			} while (s < sourceEnd && !anchor);
+			} while (s++ < sourceEnd && !anchor);
 
 			return new LuaTuple(LuaNil.Instance);
 		}
