@@ -605,6 +605,37 @@ public class StressIntegrationTests
 	}
 
 	[Fact]
+	public void Registration_NestedFunctionsInTable()
+	{
+		var state = CreateState();
+		var result = Execute(state, """
+			local root = { inner = { deep = {} } }
+			root.inner.value = 77
+			function root.inner.bump(self) return 10 end
+			function root.inner:get() return self.value end
+			function root.inner.deep.more() return 30 end
+			function root:method() return 40 end
+			function plain() return 50 end
+			return root, plain()
+			""");
+
+		var root = Assert.IsType<LuaTable>(result[0]);
+		var inner = Assert.IsType<LuaTable>(root.Get("inner"));
+		var deep = Assert.IsType<LuaTable>(inner.Get("deep"));
+
+		var bump = Assert.IsType<LuaFunction>(inner.Get("bump"), exactMatch: false);
+		var get = Assert.IsType<LuaFunction>(inner.Get("get"), exactMatch: false);
+		var more = Assert.IsType<LuaFunction>(deep.Get("more"), exactMatch: false);
+		var method = Assert.IsType<LuaFunction>(root.Get("method"), exactMatch: false);
+
+		Assert.Equal(10.0, Assert.IsType<LuaNumber>(bump.Invoke(state.CreateContext(), inner).First).Value);
+		Assert.Equal(77.0, Assert.IsType<LuaNumber>(get.Invoke(state.CreateContext(), inner).First).Value);
+		Assert.Equal(30.0, Assert.IsType<LuaNumber>(more.Invoke(state.CreateContext(), deep).First).Value);
+		Assert.Equal(40.0, Assert.IsType<LuaNumber>(method.Invoke(state.CreateContext(), root).First).Value);
+		Assert.Equal(50.0, Assert.IsType<LuaNumber>(result[1]).Value);
+	}
+
+	[Fact]
 	public void Parsing_ComplexStrings()
 	{
 		var state = CreateState();

@@ -884,31 +884,51 @@ namespace AsyncLua.Parsing
 					foreach (var child in v.Children[3])
 						nameParts.Add(child.Children[1].GetIntermediateValue<string>());
 
+					// Builds the target of a dotted declaration as a real expression
+					// (t.b.c -> IndexNode(IndexNode(t, "b"), "c")), not as one flat identifier
+					// named "t.b" - the latter would look up a global literally called "t.b".
+					ExpressionNode BuildTargetChain(IReadOnlyList<string> parts)
+					{
+						ExpressionNode target = new IdentifierNode
+						{
+							Name = parts[0],
+							Position = CodePositionalInfo.From(v)
+						};
+
+						for (int i = 1; i < parts.Count; i++)
+						{
+							target = new IndexNode
+							{
+								Target = target,
+								Index = new LiteralNode
+								{
+									Literal = new LuaString(parts[i]),
+									Position = CodePositionalInfo.From(v)
+								},
+								Position = CodePositionalInfo.From(v)
+							};
+						}
+
+						return target;
+					}
+
 					ExpressionNode? targetObject = null;
 					string? methodName = null;
 					string funcName;
 
 					if (v.Children[4].Length > 0)
 					{
-						// Method-style: function obj.method(...)
-						targetObject = new IdentifierNode
-						{
-							Name = string.Join(".", nameParts),
-							Position = CodePositionalInfo.From(v)
-						};
+						// Method-style: function obj.method(...) / function obj.sub:method(...)
+						targetObject = BuildTargetChain(nameParts);
 						methodName = v.Children[4].Children[0].GetIntermediateValue<string>(1);
 						funcName = methodName;
 					}
 					else
 					{
+						// Dot-style: function obj.method(...) - the last part is the field name.
 						funcName = nameParts.Last();
 						if (nameParts.Count > 1)
-						{
-							targetObject = new IdentifierNode {
-								Name = string.Join(".", nameParts.Take(nameParts.Count - 1)),
-								Position = CodePositionalInfo.From(v)
-							};
-						}
+							targetObject = BuildTargetChain(nameParts.Take(nameParts.Count - 1).ToList());
 					}
 
 					var parameters = v.GetValue<ParameterNode[]>(5);
