@@ -686,4 +686,83 @@ public class StressIntegrationTests
 		Assert.Equal<string?[]>(["h", "a", "c"], Strings(t5));
 		Assert.Equal<string?[]>(["h", "a"], Strings(t6));
 	}
+
+	[Fact]
+	public void Parsing_OptionalSeparator_LocalDeclarationsOnOneLine()
+	{
+		var state = CreateState();
+		var result = Execute(state, """
+			local a = 1 local b = 2
+			local t = {} local u = { x = a + b }
+			local function sum() return a + b end
+			local n = 10 local f = function() return n * 2 end
+			return a + b, #t, u.x, sum(), f()
+			""");
+
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		Assert.Equal(0.0, Assert.IsType<LuaNumber>(result[1]).Value);
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[2]).Value);
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[3]).Value);
+		Assert.Equal(20.0, Assert.IsType<LuaNumber>(result[4]).Value);
+	}
+
+	[Fact]
+	public void Parsing_OptionalSeparator_AdjacentStatementsInBlocks()
+	{
+		var state = CreateState();
+		var result = Execute(state, """
+			local total = 0 local calls = {}
+			local function record(v) calls[#calls + 1] = v return v end
+			record(1) record(2)
+			local i = 0
+			while i < 3 do i = i + 1 total = total + i end
+			for k = 1, 3 do total = total + k end
+			if total > 0 then local doubled = total * 2 total = doubled end
+			local x = 1 x = x + 1 x = x * 10
+			return total, #calls, calls[1], calls[2], x
+			""");
+
+		Assert.Equal(24.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		Assert.Equal(2.0, Assert.IsType<LuaNumber>(result[1]).Value);
+		Assert.Equal(1.0, Assert.IsType<LuaNumber>(result[2]).Value);
+		Assert.Equal(2.0, Assert.IsType<LuaNumber>(result[3]).Value);
+		Assert.Equal(20.0, Assert.IsType<LuaNumber>(result[4]).Value);
+	}
+
+	[Fact]
+	public void Parsing_OptionalSeparator_ReturnAfterStatementOnSameLine()
+	{
+		var state = CreateState();
+		var result = Execute(state, """
+			local function count(t)
+				local keys = {} for k, v in pairs(t) do keys[#keys + 1] = k end return #keys
+			end
+			local function classify(n) if n > 0 then return 1 end return 0 end
+			local v = 42
+			return v, count({ a = 1, b = 2, c = 3 }), classify(5), classify(-5)
+			""");
+
+		Assert.Equal(42.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[1]).Value);
+		Assert.Equal(1.0, Assert.IsType<LuaNumber>(result[2]).Value);
+		Assert.Equal(0.0, Assert.IsType<LuaNumber>(result[3]).Value);
+	}
+
+	[Fact]
+	public void Parsing_ExplicitSeparators_StillSupported()
+	{
+		var state = CreateState();
+		var result = Execute(state, """
+			local a = 1; local b = 2;
+			local c = 3;;; local d = 4
+			do local e = 5; a = a + e end; local f = 6
+			return a, b, c, d, f
+			""");
+
+		Assert.Equal(6.0, Assert.IsType<LuaNumber>(result[0]).Value);
+		Assert.Equal(2.0, Assert.IsType<LuaNumber>(result[1]).Value);
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result[2]).Value);
+		Assert.Equal(4.0, Assert.IsType<LuaNumber>(result[3]).Value);
+		Assert.Equal(6.0, Assert.IsType<LuaNumber>(result[4]).Value);
+	}
 }

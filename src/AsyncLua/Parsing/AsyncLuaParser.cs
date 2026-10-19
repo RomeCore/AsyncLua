@@ -634,7 +634,10 @@ namespace AsyncLua.Parsing
 					b => b.Newline());
 
 			builder.CreateRule("block")
-				.ZeroOrMoreSeparated(b => b.Rule("statement"), s => s.OneOrMore(b => b.Rule("statement_separator")))
+				.ZeroOrMore(b => b
+					.Rule("statement")
+					.ZeroOrMore(b => b.Rule("statement_separator"))
+					.TransformSelect(0))
 				.Transform(v => new BlockNode
 				{
 					Statements = v.SelectValues<StatementNode>().ToArray(),
