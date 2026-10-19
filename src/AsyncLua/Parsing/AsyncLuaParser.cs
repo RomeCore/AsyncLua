@@ -105,11 +105,64 @@ namespace AsyncLua.Parsing
 						d => new LuaNumber(d))
 				);
 
+			static ParsedElement LevelledStringMatchFunction(CustomTokenPattern self, string input,
+				int start, int end, object? parameter, bool calculateIntermediateValue,
+				ref ParsingError furthestError, TokenPattern[] children)
+			{
+				int pos = start;
+				if (pos < end && input[start] == '[')
+				{
+					pos++;
+
+					int eqsignCount = 0; // Number of equal signs
+					while (pos + eqsignCount < end && input[pos + eqsignCount] == '=')
+						eqsignCount++;
+					pos += eqsignCount;
+
+					if (pos < end && input[pos] != '[')
+						return ParsedElement.Fail;
+					pos++;
+
+					int stringStart = pos; // Start of the string content
+					int stringEnd = stringStart;
+
+					while (pos < end)
+					{
+						// Find the next potential end of the string
+						while (pos < end && input[pos] != ']')
+						{
+							pos++;
+							stringEnd = pos;
+						}
+
+						if (pos < end)
+						{
+							pos++; // Move after the closing bracket
+
+							int eqsignCount2 = 0;
+							while (pos + eqsignCount2 < end && input[pos + eqsignCount2] == '=')
+								eqsignCount2++;
+							pos += eqsignCount2;
+
+							if (eqsignCount == eqsignCount2 && pos < end && input[pos] == ']')
+							{
+								var value = input.Substring(stringStart, stringEnd - stringStart);
+								return new ParsedElement(start, pos + 1 - start, value);
+							}
+						}
+						else
+							return ParsedElement.Fail;
+					}
+				}
+
+				return ParsedElement.Fail;
+			}
+
 			builder.CreateToken("string")
 				.Map<string>(b => b.Choice(
 					b => b.Between(b => b.Literal('\"'), b => b.EscapedText(new AsyncLuaStringEscapingStrategy { IsSingleQuote = false }), b => b.Literal('\"')),
 					b => b.Between(b => b.Literal('\''), b => b.EscapedText(new AsyncLuaStringEscapingStrategy { IsSingleQuote = true }), b => b.Literal('\'')),
-					b => b.Between(b => b.Literal("[["), b => b.TextUntil("]]"), b => b.Literal("]]"))
+					b => b.Custom(LevelledStringMatchFunction)
 				), s => new LuaString(s));
 
 			// ── Primaries ────────────────────────────────────────────────

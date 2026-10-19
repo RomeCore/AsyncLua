@@ -603,4 +603,49 @@ public class StressIntegrationTests
 		Assert.Equal(2, res2.Value);
 		Assert.Equal(3, res3.Value);
 	}
+
+	[Fact]
+	public void Parsing_ComplexStrings()
+	{
+		var state = CreateState();
+		var result = Execute(state, """
+			local str1 = "Hello, world's!"
+			local str2 = 'It"s a sunny day.'
+			local mul1 = [[This is a multi-line
+				string]]
+			local mul2 = [=[This is another
+				multi-line string with brackets inside ([[]])]=]
+			local mul3 = [==[Another levelled multi-line
+				string [=[brackets]=]!]==]
+			local ext1 = [[Level of closing sequnce must be equal to opening sequence
+				string [=[brackets]=]!]]
+			return str1, str2, mul1, mul2, mul3, ext1
+			""");
+
+		var str1 = Assert.IsType<LuaString>(result[0]).Value;
+		var str2 = Assert.IsType<LuaString>(result[1]).Value;
+		var mul1 = Assert.IsType<LuaString>(result[2]).Value;
+		var mul2 = Assert.IsType<LuaString>(result[3]).Value;
+		var mul3 = Assert.IsType<LuaString>(result[4]).Value;
+		var ext1 = Assert.IsType<LuaString>(result[5]).Value;
+
+		Assert.Equal("Hello, world's!", str1);
+		Assert.Equal("It\"s a sunny day.", str2);
+		Assert.Equal("""
+			This is a multi-line
+				string
+			""", mul1);
+		Assert.Equal("""
+			This is another
+				multi-line string with brackets inside ([[]])
+			""", mul2);
+		Assert.Equal("""
+			Another levelled multi-line
+				string [=[brackets]=]!
+			""", mul3);
+		Assert.Equal("""
+			Level of closing sequnce must be equal to opening sequence
+				string [=[brackets]=]!
+			""", ext1);
+	}
 }
