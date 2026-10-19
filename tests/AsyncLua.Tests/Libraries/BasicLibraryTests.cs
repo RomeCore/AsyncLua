@@ -156,10 +156,11 @@ public class BasicLibraryTests(ITestOutputHelper output)
 	}
 
 	[Fact]
-	public void ToNumber_Nil_Throws()
+	public void ToNumber_Nil_PassesThrough()
 	{
 		var state = CreateState();
-		Assert.Throws<LuaRuntimeException>(() => state.Execute("return tonumber(nil)"));
+		var result = state.Execute("return tonumber(nil)");
+		Assert.IsType<LuaNil>(result.First);
 	}
 
 	[Fact]

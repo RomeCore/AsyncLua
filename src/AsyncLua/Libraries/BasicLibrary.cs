@@ -130,6 +130,10 @@ namespace AsyncLua.Libraries
 
 			var value = args[0];
 
+			// Lua behavior: return nil if input is nil
+			if (value is LuaNil)
+				return new LuaTuple(LuaNil.Instance);
+
 			// Check for __tonumber metamethod (individual metatable first).
 			var mt = value.Metatable;
 			if (mt != null && mt.HasEvent(LuaMetatableEvent.ToNumber))
