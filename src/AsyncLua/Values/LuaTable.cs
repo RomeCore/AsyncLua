@@ -1,10 +1,8 @@
 using System;
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 
 namespace AsyncLua.Values
 {
@@ -19,25 +17,64 @@ namespace AsyncLua.Values
 	/// or value is equivalent to the absence of the key).
 	/// </para>
 	/// <para>
+	/// The storage is split like the reference implementation: a dense <em>array part</em> for
+	/// the continuous run of integer keys starting at 1, and an <em>hash part</em> for everything
+	/// else. Unlike the reference implementation, the hash part keeps its <strong>insertion
+	/// order</strong>: <see cref="Entries"/>, <see cref="Keys"/>, <see cref="Values"/> and the Lua
+	/// <c>pairs</c>/<c>next</c> iterate the array part as 1..n and the hash part in the order its
+	/// keys were first set. That order is stable across processes — no hash code participates in it.
+	/// </para>
+	/// <para>
 	/// Tables are compared by reference identity, not by content (unless a <c>__eq</c>
 	/// metamethod is provided in the metatable).
 	/// </para>
 	/// </remarks>
 	public sealed class LuaTable : LuaValue, IEnumerable<KeyValuePair<LuaValue, LuaValue>>
 	{
-		private const int DefaultConcurrencyLevel = 4;
+		/// <summary>
+		/// One slot of the hash part. A removed key leaves a dead slot (a tombstone) in place:
+		/// the key keeps its position until the next compaction, which is what lets a traversal
+		/// survive <c>t[k] = nil</c> and keeps <c>next</c> O(1).
+		/// </summary>
+		private sealed class HashEntry
+		{
+			public LuaValue Key = LuaNil.Instance;
+			public LuaValue Value = LuaNil.Instance;
+			public bool Alive;
+		}
 
-		private readonly ConcurrentDictionary<LuaValue, LuaValue> _entries;
+#if NET9_0_OR_GREATER
+		private readonly Lock _gate = new();
+#else
+		private readonly object _gate = new();
+#endif
 
-		// Cached array-boundary length for the # operator; invalidated on mutation.
-		private int? _cachedLength = 0;
+		// Array part: the slot at 0-based index i holds the value of the Lua index i + 1.
+		// Holes are LuaNil.Instance. The physical length never shrinks (except Clear), so an
+		// index stays addressable while a traversal is in flight.
+		private readonly List<LuaValue> _array;
+
+		// Hash part: insertion order. Dead entries stay in place until a compaction.
+		private readonly List<HashEntry> _hash;
+		private readonly Dictionary<LuaValue, int> _positions;
+
+		// The # operator: 1.._densePrefix are all non-nil.
+		private int _densePrefix;
+
+		private int _liveArrayCount; // non-nil slots in the array part
+		private int _liveHashCount;  // live entries in the hash part
+		private int _deadHashCount;  // tombstones waiting for a compaction
+
+		private const int MinTombstonesToCompact = 8;
 
 		/// <summary>
 		/// Initialises a new, empty Lua table with no metatable.
 		/// </summary>
 		public LuaTable()
 		{
-			_entries = new ConcurrentDictionary<LuaValue, LuaValue>(DefaultConcurrencyLevel, [], LuaValueEqualityComparer.Instance);
+			_array = [];
+			_hash = [];
+			_positions = new Dictionary<LuaValue, int>(LuaValueEqualityComparer.Instance);
 		}
 
 		/// <summary>
@@ -55,8 +92,13 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="capacity">The initial capacity for the underlying storage.</param>
 		public LuaTable(int capacity)
+			: this()
 		{
-			_entries = new ConcurrentDictionary<LuaValue, LuaValue>(DefaultConcurrencyLevel, capacity, LuaValueEqualityComparer.Instance);
+			if (capacity > 0)
+			{
+				_array.Capacity = capacity;
+				_hash.Capacity = capacity;
+			}
 		}
 
 		// ── Indexer ──────────────────────────────────────────────────────
@@ -99,7 +141,7 @@ namespace AsyncLua.Values
 
 		/// <summary>
 		/// Gets or sets the value associated with the specified key.
-		/// Setting a <c>nil</c> value removes the key (equivalent to <see cref="Remove"/>).
+		/// Setting a <c>nil</c> value removes the key (equivalent to <see cref="Remove(LuaValue)"/>).
 		/// </summary>
 		/// <param name="key">The key. Must not be <c>nil</c>.</param>
 		/// <returns>The stored value, or <see cref="LuaNil.Instance"/> if the key is absent.</returns>
@@ -110,7 +152,7 @@ namespace AsyncLua.Values
 			set => Set(key, value);
 		}
 
-		// ── Getters / Setters ────────────────────────────────────────────
+		// ── Getters ──────────────────────────────────────────────────────
 
 		/// <summary>
 		/// Retrieves the value by the specified object key, or <c>default</c> if absent.
@@ -143,10 +185,17 @@ namespace AsyncLua.Values
 		{
 			ValidateKey(key);
 
-			if (_entries.TryGetValue(key, out var value))
-				return value;
+			lock (_gate)
+			{
+				// An integer index beyond the array part is an ordinary hash key (it never grew
+				// the array), so both halves have to be consulted.
+				if (TryGetArrayIndex(key, out int index) && index <= _array.Count)
+					return _array[index - 1];
 
-			return LuaNil.Instance;
+				return _positions.TryGetValue(key, out int position) && _hash[position].Alive
+					? _hash[position].Value
+					: LuaNil.Instance;
+			}
 		}
 
 		/// <summary>
@@ -166,7 +215,7 @@ namespace AsyncLua.Values
 		/// <summary>
 		/// Retrieves the value at the specified integer index (1-based), or <c>default</c> if absent.
 		/// </summary>
-		/// <param name="key">The key to look up.</param>
+		/// <param name="index">The 1-based integer index.</param>
 		/// <returns>The stored value, or <see langword="default"/> if not found.</returns>
 		public T? Get<T>(int index) => LuaValueConverter.ToClrObject<T>(Get((LuaNumber)index));
 
@@ -175,7 +224,9 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="key">The key to look up.</param>
 		/// <returns>The stored value, or <see langword="default"/> if not found.</returns>
-		public T? Get<T>(LuaValue value) => LuaValueConverter.ToClrObject<T>(Get(value));
+		public T? Get<T>(LuaValue key) => LuaValueConverter.ToClrObject<T>(Get(key));
+
+		// ── Setters ──────────────────────────────────────────────────────
 
 		/// <summary>
 		/// Stores a value at the specified CLR object key. Passing a <c>null</c> value removes the key.
@@ -208,28 +259,12 @@ namespace AsyncLua.Values
 		{
 			ValidateKey(key);
 
-			if (value is LuaNil)
+			lock (_gate)
 			{
-				if (key is LuaNumber number && _cachedLength != null)
-				{
-					if (_cachedLength == number.Value)
-						_cachedLength = (int)number.Value - 1;
-					else
-						_cachedLength = null;
-				}
-				_entries.TryRemove(key, out _);
-			}
-			else
-			{
-				if (key is LuaNumber number && _cachedLength != null)
-				{
-					if (_cachedLength >= number.Value + 1 && !_entries.ContainsKey((LuaNumber)(number.Value + 1)))
-						_cachedLength = (int)number.Value + 1;
-					else
-						_cachedLength = null;
-				}
-				_cachedLength = null;
-				_entries[key] = value;
+				if (TryGetArrayIndex(key, out int index))
+					SetArray(key, index, value);
+				else
+					SetHash(key, value);
 			}
 		}
 
@@ -276,13 +311,15 @@ namespace AsyncLua.Values
 		/// <param name="value">The value to append.</param>
 		public void Append(LuaValue value)
 		{
-			var length = Length;
-			_entries[(LuaNumber)(length + 1)] = value;
-			if (!_entries.ContainsKey((LuaNumber)(length + 2)))
-				_cachedLength = length + 1;
-			else
-				_cachedLength = null;
+			lock (_gate)
+			{
+				// #t + 1 is either a hole inside the array part or the next free slot.
+				int index = _densePrefix + 1;
+				SetArray(new LuaNumber(index), index, value);
+			}
 		}
+
+		// ── Removal / lookup ─────────────────────────────────────────────
 
 		/// <summary>
 		/// Removes the entry at the specified CLR object key.
@@ -314,8 +351,24 @@ namespace AsyncLua.Values
 		public bool Remove(LuaValue key)
 		{
 			ValidateKey(key);
-			_cachedLength = null;
-			return _entries.TryRemove(key, out _);
+
+			lock (_gate)
+			{
+				if (TryGetArrayIndex(key, out int index) && index <= _array.Count)
+				{
+					if (_array[index - 1] is LuaNil)
+						return false;
+
+					SetArray(key, index, LuaNil.Instance);
+					return true;
+				}
+
+				if (!_positions.TryGetValue(key, out int position) || !_hash[position].Alive)
+					return false;
+
+				SetHash(key, LuaNil.Instance);
+				return true;
+			}
 		}
 
 		/// <summary>
@@ -327,7 +380,14 @@ namespace AsyncLua.Values
 		public bool ContainsKey(LuaValue key)
 		{
 			ValidateKey(key);
-			return _entries.ContainsKey(key);
+
+			lock (_gate)
+			{
+				if (TryGetArrayIndex(key, out int index) && index <= _array.Count)
+					return _array[index - 1] is not LuaNil;
+
+				return _positions.TryGetValue(key, out int position) && _hash[position].Alive;
+			}
 		}
 
 		/// <summary>
@@ -338,12 +398,35 @@ namespace AsyncLua.Values
 		/// <returns><see langword="true"/> if the key was found; otherwise, <see langword="false"/>.</returns>
 		public bool TryGetValue(LuaValue key, out LuaValue value)
 		{
-			if (key is LuaNil)
+			if (key is null || key is LuaNil)
 			{
 				value = LuaNil.Instance;
 				return false;
 			}
-			return _entries.TryGetValue(key, out value);
+
+			lock (_gate)
+			{
+				if (TryGetArrayIndex(key, out int index) && index <= _array.Count)
+				{
+					if (_array[index - 1] is not LuaNil)
+					{
+						value = _array[index - 1];
+						return true;
+					}
+
+					value = LuaNil.Instance;
+					return false;
+				}
+
+				if (_positions.TryGetValue(key, out int position) && _hash[position].Alive)
+				{
+					value = _hash[position].Value;
+					return true;
+				}
+
+				value = LuaNil.Instance;
+				return false;
+			}
 		}
 
 		/// <summary>
@@ -351,40 +434,52 @@ namespace AsyncLua.Values
 		/// </summary>
 		public void Clear()
 		{
-			_entries.Clear();
-			_cachedLength = null;
+			lock (_gate)
+			{
+				_array.Clear();
+				_hash.Clear();
+				_positions.Clear();
+				_densePrefix = 0;
+				_liveArrayCount = 0;
+				_liveHashCount = 0;
+				_deadHashCount = 0;
+			}
 		}
 
 		// ── Length (#) ───────────────────────────────────────────────────
 
 		/// <summary>
-		/// Gets the length of the table as defined by the Lua <c>#</c> operator.
-		/// This is the highest positive integer index <c>n</c> such that
-		/// <c>t[n]</c> is not <c>nil</c> and <c>t[n+1]</c> is <c>nil</c>.
+		/// Gets the length of the table as defined by the Lua <c>#</c> operator: the length of the
+		/// dense prefix, i.e. the largest <c>n</c> such that <c>t[1]..t[n]</c> are all non-nil.
 		/// </summary>
 		/// <remarks>
-		/// If the table has "holes" (nil values before non-nil values), the result
-		/// is implementation-defined by the Lua specification; this implementation
-		/// uses binary search to find the boundary.
+		/// Lua allows the length operator to return any border; this implementation always returns
+		/// the dense prefix. For a table with holes that means <c>{1, nil, 3}</c> has length 1 —
+		/// the same place where <c>ipairs</c> stops, and the place where <c>t[#t + 1]</c> writes.
 		/// </remarks>
 		public int Length
 		{
 			get
 			{
-				if (_cachedLength.HasValue)
-					return _cachedLength.Value;
-
-				_cachedLength = CalculateLength();
-				return _cachedLength.Value;
+				lock (_gate)
+					return _densePrefix;
 			}
 		}
 
 		// ── Properties ───────────────────────────────────────────────────
 
 		/// <summary>
-		/// Gets the number of entries in the table.
+		/// Gets the number of live entries in the table (array slots with a non-nil value plus live
+		/// hash entries). Tombstones and holes are not counted.
 		/// </summary>
-		public int Count => _entries.Count;
+		public int Count
+		{
+			get
+			{
+				lock (_gate)
+					return _liveArrayCount + _liveHashCount;
+			}
+		}
 
 		/// <inheritdoc />
 		public override LuaType Type => LuaType.Table;
@@ -430,62 +525,380 @@ namespace AsyncLua.Values
 		// ── Enumeration ──────────────────────────────────────────────────
 
 		/// <summary>
-		/// Returns an enumerator over all key-value pairs in the table.
+		/// Returns a snapshot of all live key-value pairs: the array part as 1..n, then the hash part
+		/// in insertion order. The snapshot does not change when the table is mutated afterwards.
 		/// </summary>
-		/// <returns>A struct enumerator.</returns>
-		public IEnumerator<KeyValuePair<LuaValue, LuaValue>> GetEnumerator() => _entries.GetEnumerator();
+		public IReadOnlyList<KeyValuePair<LuaValue, LuaValue>> Entries
+		{
+			get
+			{
+				lock (_gate)
+				{
+					var result = new KeyValuePair<LuaValue, LuaValue>[_liveArrayCount + _liveHashCount];
+					int index = 0;
+
+					for (int i = 0; i < _array.Count; i++)
+					{
+						if (_array[i] is LuaNil)
+							continue;
+						result[index++] = new KeyValuePair<LuaValue, LuaValue>(new LuaNumber(i + 1), _array[i]);
+					}
+
+					for (int i = 0; i < _hash.Count; i++)
+					{
+						var entry = _hash[i];
+						if (!entry.Alive)
+							continue;
+						result[index++] = new KeyValuePair<LuaValue, LuaValue>(entry.Key, entry.Value);
+					}
+
+					return result;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Returns a snapshot of all live keys: the array part as 1..n, then the hash part in
+		/// insertion order.
+		/// </summary>
+		public IReadOnlyList<LuaValue> Keys
+		{
+			get
+			{
+				lock (_gate)
+				{
+					var result = new LuaValue[_liveArrayCount + _liveHashCount];
+					int index = 0;
+
+					for (int i = 0; i < _array.Count; i++)
+					{
+						if (_array[i] is LuaNil)
+							continue;
+						result[index++] = new LuaNumber(i + 1);
+					}
+
+					for (int i = 0; i < _hash.Count; i++)
+					{
+						if (_hash[i].Alive)
+							result[index++] = _hash[i].Key;
+					}
+
+					return result;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Returns a snapshot of all live values, in the same order as <see cref="Keys"/>.
+		/// </summary>
+		public IReadOnlyList<LuaValue> Values
+		{
+			get
+			{
+				lock (_gate)
+				{
+					var result = new LuaValue[_liveArrayCount + _liveHashCount];
+					int index = 0;
+
+					for (int i = 0; i < _array.Count; i++)
+					{
+						if (_array[i] is LuaNil)
+							continue;
+						result[index++] = _array[i];
+					}
+
+					for (int i = 0; i < _hash.Count; i++)
+					{
+						if (_hash[i].Alive)
+							result[index++] = _hash[i].Value;
+					}
+
+					return result;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Returns a snapshot enumerator over all key-value pairs in the table.
+		/// </summary>
+		public IEnumerator<KeyValuePair<LuaValue, LuaValue>> GetEnumerator()
+			=> ((IEnumerable<KeyValuePair<LuaValue, LuaValue>>)Entries).GetEnumerator();
 
 		IEnumerator<KeyValuePair<LuaValue, LuaValue>> IEnumerable<KeyValuePair<LuaValue, LuaValue>>.GetEnumerator()
-			=> _entries.GetEnumerator();
+			=> GetEnumerator();
 
-		IEnumerator IEnumerable.GetEnumerator() => _entries.GetEnumerator();
+		IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-		/// <summary>
-		/// Returns an enumerable over all keys in the table.
-		/// </summary>
-		public IEnumerable<LuaValue> Keys => _entries.Keys.Where(k => k != LuaNil.Instance);
+		// ── Lua next() ───────────────────────────────────────────────────
 
 		/// <summary>
-		/// Returns an enumerable over all values in the table.
+		/// Implements the Lua <c>next</c> function: returns the entry that follows <paramref name="after"/>
+		/// in a full traversal (array part 1..n, then the hash part in insertion order).
 		/// </summary>
-		public IEnumerable<LuaValue> Values => _entries.Values;
-
-		/// <summary>
-		/// Returns an enumerable over all key-value pairs in the table.
-		/// </summary>
-		public IEnumerable<KeyValuePair<LuaValue, LuaValue>> Entries => _entries;
-
-		// ── Private helpers ──────────────────────────────────────────────
-
-		private int CalculateLength()
+		/// <param name="after">The key returned by the previous call, or <c>nil</c> to start.</param>
+		/// <param name="key">The next key, or <c>nil</c> when the traversal is over.</param>
+		/// <param name="value">The next value, or <c>nil</c> when the traversal is over.</param>
+		/// <returns><see langword="true"/> while there are entries left; otherwise <see langword="false"/>.</returns>
+		/// <exception cref="LuaRuntimeException">
+		/// Thrown when <paramref name="after"/> is not a key of the table (the same error the reference
+		/// implementation raises after a rehash invalidated an in-flight traversal).
+		/// </exception>
+		internal bool TryGetNext(LuaValue after, out LuaValue key, out LuaValue value)
 		{
-			// Binary search for the boundary between non-nil and nil.
-			// Find max j such that for all i in [1, j], t[i] is not nil.
-
-			// If t[1] is nil, length is 0.
-			if (!_entries.TryGetValue(LuaNumber.One, out _))
-				return 0;
-
-			// Find an upper bound: double until we hit nil.
-			int low = 1;
-			int high = 2;
-			while (_entries.ContainsKey((LuaNumber)(double)high))
+			lock (_gate)
 			{
-				low = high;
-				high *= 2;
+				if (after is LuaNil)
+					return TryFindFirst(out key, out value);
+
+				if (TryGetArrayIndex(after, out int index) && index <= _array.Count)
+				{
+					// Slots after the one that was returned; the requested key itself may have been
+					// cleared during the traversal, the physical slot is what anchors the position.
+					for (int i = index; i < _array.Count; i++)
+					{
+						if (_array[i] is LuaNil)
+							continue;
+						key = new LuaNumber(i + 1);
+						value = _array[i];
+						return true;
+					}
+
+					return TryFindFirstHash(out key, out value);
+				}
+
+				if (_positions.TryGetValue(after, out int position))
+				{
+					for (int i = position + 1; i < _hash.Count; i++)
+					{
+						if (!_hash[i].Alive)
+							continue;
+						key = _hash[i].Key;
+						value = _hash[i].Value;
+						return true;
+					}
+
+					key = LuaNil.Instance;
+					value = LuaNil.Instance;
+					return false;
+				}
+
+				throw new LuaRuntimeException("invalid key to 'next'");
+			}
+		}
+
+		private bool TryFindFirst(out LuaValue key, out LuaValue value)
+		{
+			for (int i = 0; i < _array.Count; i++)
+			{
+				if (_array[i] is LuaNil)
+					continue;
+				key = new LuaNumber(i + 1);
+				value = _array[i];
+				return true;
 			}
 
-			// Binary search between low and high.
-			while (low < high)
+			return TryFindFirstHash(out key, out value);
+		}
+
+		private bool TryFindFirstHash(out LuaValue key, out LuaValue value)
+		{
+			for (int i = 0; i < _hash.Count; i++)
 			{
-				int mid = low + (high - low + 1) / 2;
-				if (_entries.ContainsKey((LuaNumber)(double)mid))
-					low = mid;
-				else
-					high = mid - 1;
+				if (!_hash[i].Alive)
+					continue;
+				key = _hash[i].Key;
+				value = _hash[i].Value;
+				return true;
 			}
 
-			return low;
+			key = LuaNil.Instance;
+			value = LuaNil.Instance;
+			return false;
+		}
+
+		// ── Array part ───────────────────────────────────────────────────
+
+		/// <summary>
+		/// Stores (<paramref name="value"/> not nil) or removes (<paramref name="value"/> nil) the array
+		/// slot <paramref name="index"/>. An index beyond <c>Count + 1</c> belongs to the hash part.
+		/// </summary>
+		private void SetArray(LuaValue key, int index, LuaValue value)
+		{
+			// A far index never grows the array part: it is a hash key until the array reaches it.
+			if (index > _array.Count + 1)
+			{
+				SetHash(key, value);
+				return;
+			}
+
+			if (value is LuaNil)
+			{
+				if (index > _array.Count || _array[index - 1] is LuaNil)
+					return;
+
+				_array[index - 1] = LuaNil.Instance;
+				_liveArrayCount--;
+
+				if (index <= _densePrefix)
+					_densePrefix = index - 1;
+
+				return;
+			}
+
+			bool appended = index > _array.Count;
+
+			if (appended)
+			{
+				_array.Add(value);
+				_liveArrayCount++;
+			}
+			else
+			{
+				if (_array[index - 1] is LuaNil)
+					_liveArrayCount++;
+				_array[index - 1] = value;
+			}
+
+			ExtendPrefix();
+
+			if (appended)
+				AbsorbFollowing();
+		}
+
+		/// <summary>
+		/// Moves consecutive hash keys into the array part after the array grew at its end
+		/// (<c>t[2] = b; t[1] = a</c> ends up with an array <c>1..2</c>).
+		/// </summary>
+		private void AbsorbFollowing()
+		{
+			while (true)
+			{
+				var nextKey = new LuaNumber(_array.Count + 1);
+				if (!_positions.TryGetValue(nextKey, out int position))
+					return;
+
+				var entry = _hash[position];
+				if (!entry.Alive)
+					return;
+
+				_array.Add(entry.Value);
+				_liveArrayCount++;
+				_positions.Remove(nextKey);
+
+				entry.Alive = false;
+				entry.Value = LuaNil.Instance;
+				_liveHashCount--;
+				_deadHashCount++;
+
+				ExtendPrefix();
+			}
+		}
+
+		/// <summary>
+		/// Advances <see cref="_densePrefix"/> over the run of non-nil slots that starts right after it.
+		/// </summary>
+		private void ExtendPrefix()
+		{
+			while (_densePrefix < _array.Count && _array[_densePrefix] is not LuaNil)
+				_densePrefix++;
+		}
+
+		// ── Hash part ────────────────────────────────────────────────────
+
+		/// <summary>
+		/// Stores (<paramref name="value"/> not nil) or removes (<paramref name="value"/> nil) a hash entry.
+		/// A key that comes back after a removal becomes a new insertion, so it moves to the end.
+		/// </summary>
+		private void SetHash(LuaValue key, LuaValue value)
+		{
+			if (_positions.TryGetValue(key, out int position))
+			{
+				var entry = _hash[position];
+				if (entry.Alive)
+				{
+					if (value is LuaNil)
+					{
+						entry.Alive = false;
+						entry.Value = LuaNil.Instance;
+						_liveHashCount--;
+						_deadHashCount++;
+					}
+					else
+					{
+						entry.Value = value;
+					}
+
+					return;
+				}
+
+				// The position points at a tombstone: drop the stale mapping. Re-setting the key is
+				// a fresh insertion (it goes to the end of the traversal order).
+				_positions.Remove(key);
+
+				if (value is LuaNil)
+					return;
+			}
+			else if (value is LuaNil)
+			{
+				return; // removing a key that is not there is a no-op
+			}
+
+			CompactIfNeeded();
+
+			_hash.Add(new HashEntry { Key = key, Value = value, Alive = true });
+			_positions[key] = _hash.Count - 1;
+			_liveHashCount++;
+		}
+
+		/// <summary>
+		/// Drops tombstones once they outnumber the live entries. Compaction invalidates the positions
+		/// of dead keys, which is exactly when Lua allows a traversal to break — it only runs from an
+		/// insertion, and inserting during traversal is undefined by the language.
+		/// </summary>
+		private void CompactIfNeeded()
+		{
+			if (_deadHashCount < MinTombstonesToCompact || _deadHashCount <= _liveHashCount)
+				return;
+
+			int write = 0;
+			for (int read = 0; read < _hash.Count; read++)
+			{
+				if (!_hash[read].Alive)
+					continue;
+
+				_hash[write++] = _hash[read];
+			}
+
+			if (write < _hash.Count)
+				_hash.RemoveRange(write, _hash.Count - write);
+
+			_positions.Clear();
+			for (int i = 0; i < _hash.Count; i++)
+				_positions[_hash[i].Key] = i;
+
+			_deadHashCount = 0;
+		}
+
+		// ── Helpers ──────────────────────────────────────────────────────
+
+		/// <summary>
+		/// Recognises the keys served by the array part: integer numbers in <c>[1, int.MaxValue]</c>.
+		/// <c>1</c> and <c>1.0</c> are the same key, so the check is on the value, not on the literal.
+		/// </summary>
+		private static bool TryGetArrayIndex(LuaValue key, out int index)
+		{
+			if (key is LuaNumber number)
+			{
+				double value = number.Value;
+				if (value >= 1 && value <= int.MaxValue && value == Math.Floor(value))
+				{
+					index = (int)value;
+					return true;
+				}
+			}
+
+			index = 0;
+			return false;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -497,7 +910,7 @@ namespace AsyncLua.Values
 				throw new ArgumentException("A Lua table key cannot be nil.", nameof(key));
 		}
 
-		// ── EqualityComparer for dictionary ──────────────────────────────
+		// ── EqualityComparer for the position map ────────────────────────
 
 		private sealed class LuaValueEqualityComparer : IEqualityComparer<LuaValue>
 		{

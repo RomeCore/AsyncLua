@@ -270,29 +270,11 @@ namespace AsyncLua.Libraries
 
 			var key = args.Length > 1 ? args[1] : LuaNil.Instance;
 
-			if (key is LuaNil)
-			{
-				// Find the first key.
-				foreach (var kv in tbl)
-				{
-					if (kv.Key is LuaNil) continue;
-					return new LuaTuple(kv.Key, kv.Value);
-				}
-				return new LuaTuple(LuaNil.Instance);
-			}
-
-			// Find the key after the given one.
-			bool found = false;
-			foreach (var kv in tbl)
-			{
-				if (kv.Key is LuaNil) continue;
-				if (found)
-					return new LuaTuple(kv.Key, kv.Value);
-				if (kv.Key.Equals(key))
-					found = true;
-			}
-
-			return new LuaTuple(LuaNil.Instance);
+			// The table owns the traversal order (array part 1..n, then the hash part in insertion
+			// order) and the positions, so a step is a position lookup instead of a full rescan.
+			return tbl.TryGetNext(key, out var nextKey, out var nextValue)
+				? new LuaTuple(nextKey, nextValue)
+				: new LuaTuple(LuaNil.Instance);
 		}
 
 		private static LuaTuple Select(LuaCallingContext ctx, LuaValue[] args)

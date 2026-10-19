@@ -183,11 +183,20 @@ public class TableLibraryTests
 	}
 
 	[Fact]
-	public void Concat_WithHole_Throws()
+	public void Concat_WithHole_UsesDensePrefixAsLength()
+	{
+		var state = CreateState();
+		// # is the dense prefix, so the hole at index 3 is outside the default range 1..#t.
+		var result = state.Execute("return table.concat({ 'a', 'b', nil, 'd' })");
+		Assert.Equal("ab", Assert.IsType<LuaString>(result.First).Value);
+	}
+
+	[Fact]
+	public void Concat_ExplicitRangeWithHole_Throws()
 	{
 		var state = CreateState();
 		var ex = Assert.Throws<LuaRuntimeException>(() =>
-			state.Execute("return table.concat({ 'a', 'b', nil, 'd' })"));
+			state.Execute("return table.concat({ 'a', 'b', nil, 'd' }, '', 1, 3)"));
 		Assert.Contains("invalid value (nil)", ex.Message);
 	}
 
