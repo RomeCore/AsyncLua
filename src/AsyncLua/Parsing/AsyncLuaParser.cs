@@ -821,9 +821,7 @@ namespace AsyncLua.Parsing
 				{
 					var nameParts = new List<string> { v.GetIntermediateValue<string>(2) };
 					foreach (var child in v.Children[3])
-					{
-						nameParts.Add(child.Children[0].GetIntermediateValue<string>(1));
-					}
+						nameParts.Add(child.Children[1].GetIntermediateValue<string>());
 
 					ExpressionNode? targetObject = null;
 					string? methodName = null;

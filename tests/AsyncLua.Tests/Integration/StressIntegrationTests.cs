@@ -576,4 +576,31 @@ public class StressIntegrationTests
 		Assert.Equal("A->B", Assert.IsType<LuaString>(result[2]).Value);
 		Assert.Equal("B->C", Assert.IsType<LuaString>(result[3]).Value);
 	}
+
+	[Fact]
+	public void Registration_FunctionsInTable()
+	{
+		var state = CreateState();
+		var result = Execute(state, @"
+			local tab = {}
+			function tab.foo(self) return 1 end
+			function tab:bar() return 2 end
+			tab.baz = function(self) return 3 end
+			return tab
+		");
+
+		var table = Assert.IsType<LuaTable>(result.First);
+
+		var func1 = Assert.IsType<LuaFunction>(table.Get("foo"), exactMatch: false);
+		var func2 = Assert.IsType<LuaFunction>(table.Get("bar"), exactMatch: false);
+		var func3 = Assert.IsType<LuaFunction>(table.Get("baz"), exactMatch: false);
+
+		var res1 = Assert.IsType<LuaNumber>(func1.Invoke(state.CreateContext(), table).First);
+		var res2 = Assert.IsType<LuaNumber>(func2.Invoke(state.CreateContext(), table).First);
+		var res3 = Assert.IsType<LuaNumber>(func3.Invoke(state.CreateContext(), table).First);
+
+		Assert.Equal(1, res1.Value);
+		Assert.Equal(2, res2.Value);
+		Assert.Equal(3, res3.Value);
+	}
 }
