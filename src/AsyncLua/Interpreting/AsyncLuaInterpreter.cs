@@ -455,7 +455,14 @@ namespace AsyncLua.Interpreting
 									{
 										try
 										{
-											results = await awaitFunction.InvokeAsync(context, awaitable);
+											results = await AwaitWithCancellation(
+												awaitFunction.InvokeAsync(context, awaitable), context.CancellationToken);
+										}
+										catch (OperationCanceledException)
+										{
+											// Cancellation is the host's decision: it aborts the script instead of
+											// becoming a Lua error that try/catch or pcall could swallow.
+											throw;
 										}
 										catch (LuaRuntimeException)
 										{
@@ -469,12 +476,22 @@ namespace AsyncLua.Interpreting
 									}
 									else
 									{
-										var task = awaitable as LuaTask
+										var luaTask = awaitable as LuaTask
 											?? throw RuntimeError("Cannot await a non-LuaTask or a value that does not have an __await metamethod.", frame.Function, pc);
 
 										try
 										{
-											results = await task;
+											// A task that is already finished (or a run nobody can cancel) is awaited
+											// exactly as before: only a genuinely pending, cancellable wait is raced.
+											results = !context.CancellationToken.CanBeCanceled || luaTask.IsCompleted
+												? await luaTask
+												: await RaceCancellation(AsTask(luaTask), context.CancellationToken);
+										}
+										catch (OperationCanceledException)
+										{
+											// Cancellation is the host's decision: it aborts the script instead of
+											// becoming a Lua error that try/catch or pcall could swallow.
+											throw;
 										}
 										catch (LuaRuntimeException)
 										{
@@ -1415,6 +1432,64 @@ namespace AsyncLua.Interpreting
 
 			// The value stays raw; the position is applied where the error is rendered for Lua.
 			return new LuaRuntimeException(ex.ErrorValue, pos, ex.InnerException);
+		}
+
+		// ── Cancellation-aware awaiting ─────────────────────────────────
+
+		/// <summary>
+		/// Hands back the awaited task itself when there is nothing to observe - no cancellable token,
+		/// or the task has already finished - so the common path keeps its original continuations.
+		/// A pending, cancellable wait is raced against the token instead.
+		/// </summary>
+		private static Task<LuaTuple> AwaitWithCancellation(Task<LuaTuple> awaited, CancellationToken cancellationToken)
+		{
+			return !cancellationToken.CanBeCanceled || awaited.IsCompleted
+				? awaited
+				: RaceCancellation(awaited, cancellationToken);
+		}
+
+		/// <summary>
+		/// Awaits a task until either it finishes or the token is cancelled, and fails with
+		/// <see cref="OperationCanceledException"/> when the token wins, so a long await is
+		/// interrupted instead of running to completion after the host gave up on the script.
+		/// </summary>
+		private static async Task<LuaTuple> RaceCancellation(Task<LuaTuple> awaited, CancellationToken cancellationToken)
+		{
+			var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+			using (cancellationToken.Register(
+				static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), cancelled))
+			{
+				var finished = await Task.WhenAny(awaited, cancelled.Task).ConfigureAwait(false);
+				if (finished == awaited)
+					return await awaited.ConfigureAwait(false);
+
+				// The abandoned operation keeps running in the background; its failure is observed
+				// here so it is not reported as an unobserved task exception.
+				_ = awaited.ContinueWith(
+					static t => _ = t.Exception,
+					CancellationToken.None,
+					TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+					TaskScheduler.Default);
+				throw new OperationCanceledException(cancellationToken);
+			}
+		}
+
+		/// <summary>
+		/// Bridges a Lua task to a .NET task, so it can be raced against a cancellation token.
+		/// </summary>
+		private static Task<LuaTuple> AsTask(LuaTask luaTask)
+		{
+			var completion = new TaskCompletionSource<LuaTuple>(TaskCreationOptions.RunContinuationsAsynchronously);
+			luaTask.OnCompleted(task =>
+			{
+				if (task.IsFaulted)
+					completion.TrySetException(task.Exception!);
+				else if (task.IsCanceled)
+					completion.TrySetCanceled();
+				else
+					completion.TrySetResult(task.Result);
+			});
+			return completion.Task;
 		}
 
 		// ── Metamethod helpers ─────────────────────────────────────────
