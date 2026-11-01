@@ -856,8 +856,9 @@ namespace AsyncLua.Interpreting
 
 							case OpCode.THROW:
 								{
-									var exValue = registers[inst.A];
-									throw RuntimeError(exValue.ToString(), frame.Function, pc);
+									// `throw` raises the value itself, so try/catch can bind a table or a number
+									// instead of a lossy string rendering of it.
+									throw RuntimeError(registers[inst.A], frame.Function, pc);
 								}
 
 							case OpCode.CALL:
@@ -927,9 +928,9 @@ namespace AsyncLua.Interpreting
 												// The call produces a single value (the LuaTask) at R[A].
 												frame.RegisterTop = inst.A + 1;
 											}
-											catch (LuaRuntimeException ex) when (!ex.HasPosition)
+											catch (LuaRuntimeException ex) when (!ex.HasPosition && ex.AddPosition)
 											{
-												throw RuntimeError(ex.OriginalMessage, function, pc - 1, ex.InnerException);
+												throw WithPosition(ex, function, pc - 1);
 											}
 											// pc already advanced; execution continues without blocking.
 											break;
@@ -1018,9 +1019,9 @@ namespace AsyncLua.Interpreting
 												if (inst.C == 0)
 													frame.RegisterTop = inst.A + storeCount;
 											}
-											catch (LuaRuntimeException ex) when (!ex.HasPosition)
+											catch (LuaRuntimeException ex) when (!ex.HasPosition && ex.AddPosition)
 											{
-												throw RuntimeError(ex.OriginalMessage, function, pc - 1, ex.InnerException);
+												throw WithPosition(ex, function, pc - 1);
 											}
 										}
 										break;
@@ -1310,21 +1311,22 @@ namespace AsyncLua.Interpreting
 							while (tryHandlers.Count > 0 && tryHandlers.Peek().CallStackDepth > callStack.Count)
 								tryHandlers.Pop();
 
+							// A caught error keeps the value it was raised with: a table stays a table.
 							if (handler.CatchVarReg.HasValue)
-								registers[handler.CatchVarReg.Value] = new LuaString(ex.OriginalMessage);
+								registers[handler.CatchVarReg.Value] = ex.ErrorValue;
 							pc = handler.CatchPC;
 						}
 						else
 						{
 							// rethrow — all handlers already used
-							if (!ex.HasPosition)
-								throw RuntimeError(ex.OriginalMessage, function, pc, ex.InnerException);
+							if (!ex.HasPosition && ex.AddPosition)
+								throw WithPosition(ex, function, pc);
 							throw;
 						}
 					}
-					catch (LuaRuntimeException ex) when (!ex.HasPosition)
+					catch (LuaRuntimeException ex) when (!ex.HasPosition && ex.AddPosition)
 					{
-						throw RuntimeError(ex.OriginalMessage, function, pc, ex.InnerException);
+						throw WithPosition(ex, function, pc);
 					}
 				}
 			}
@@ -1358,7 +1360,7 @@ namespace AsyncLua.Interpreting
 			{
 				var pos = positions[pc];
 				if (pos.IsValid)
-					return new LuaRuntimeException(message, pos);
+					return new LuaRuntimeException(new LuaString(message), pos);
 			}
 			return new LuaRuntimeException(message);
 		}
@@ -1374,9 +1376,45 @@ namespace AsyncLua.Interpreting
 			{
 				var pos = positions[pc];
 				if (pos.IsValid)
-					return new LuaRuntimeException(message, pos, inner);
+					return new LuaRuntimeException(new LuaString(message), pos, inner);
 			}
 			return new LuaRuntimeException(message, inner);
+		}
+
+		/// <summary>
+		/// Creates a <see cref="LuaRuntimeException"/> carrying a Lua error value raised at the
+		/// current instruction. The value itself is never rewritten: the position is appended to
+		/// the CLR message and offered through <see cref="LuaRuntimeException.ErrorValueWithPosition"/>.
+		/// </summary>
+		private static LuaRuntimeException RuntimeError(LuaValue errorValue, FunctionPrototype function, int pc)
+		{
+			var positions = function.Positions;
+			if (positions != null && pc >= 0 && pc < positions.Length)
+			{
+				var pos = positions[pc];
+				if (pos.IsValid)
+					return new LuaRuntimeException(errorValue, pos);
+			}
+			return new LuaRuntimeException(errorValue, addPosition: false);
+		}
+
+		/// <summary>
+		/// Attaches the source position of the current instruction to an error that does not carry
+		/// one yet, following Lua: a string error value gains the position, any other value travels
+		/// untouched (which is why <c>error(msg, 0)</c> never reaches here at all).
+		/// </summary>
+		private static LuaRuntimeException WithPosition(LuaRuntimeException ex, FunctionPrototype function, int pc)
+		{
+			var positions = function.Positions;
+			if (positions == null || pc < 0 || pc >= positions.Length)
+				return ex;
+
+			var pos = positions[pc];
+			if (!pos.IsValid)
+				return ex;
+
+			// The value stays raw; the position is applied where the error is rendered for Lua.
+			return new LuaRuntimeException(ex.ErrorValue, pos, ex.InnerException);
 		}
 
 		// ── Metamethod helpers ─────────────────────────────────────────

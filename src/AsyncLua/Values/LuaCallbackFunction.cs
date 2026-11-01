@@ -74,10 +74,32 @@ namespace AsyncLua.Values
 		}
 
 		/// <inheritdoc />
+		/// <remarks>
+		/// A callback is host code, and a .NET exception thrown by it is what Lua calls a runtime
+		/// error, so it is converted here - at the single synchronous point every library function,
+		/// host binding and generated userdata method passes through. Only synchronous throws are
+		/// handled: a fault that surfaces later belongs to the task the caller awaits, and the
+		/// interpreter converts it there. Wrapping the task here would add an await layer between
+		/// a coroutine and its resume handshake.
+		/// </remarks>
 		public override Task<LuaTuple> InvokeAsync(LuaCallingContext context, params LuaValue[] args)
 		{
-			return _callback(context, args);
+			try
+			{
+				return _callback(context, args);
+			}
+			catch (Exception ex) when (!IsPassThrough(ex))
+			{
+				throw new LuaRuntimeException(ex.Message, ex);
+			}
 		}
+
+		/// <summary>
+		/// Reports exceptions that must keep travelling as themselves: Lua errors already carry a
+		/// value, and cancellation is the host's decision rather than a Lua failure.
+		/// </summary>
+		private static bool IsPassThrough(Exception ex) =>
+			ex is LuaRuntimeException || ex is OperationCanceledException;
 
 		/// <inheritdoc />
 		public override string ToString()

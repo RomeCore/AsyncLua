@@ -86,8 +86,16 @@ namespace AsyncLua.Libraries
 
 		private static LuaTuple Error(LuaCallingContext ctx, LuaValue[] args)
 		{
-			throw new LuaRuntimeException(
-				args.Length > 0 ? args[0].ToString() : "error");
+			var value = args.Length > 0 ? args[0] : LuaNil.Instance;
+
+			// Lua raises the value untouched - a table stays a table - and only a string gets
+			// the "position" prefix, and only when the level is above 0. Levels above 1 refer
+			// to an outer frame, which this VM does not track, so they behave like 1.
+			int level = 1;
+			if (args.Length > 1 && args[1].TryToNumber(out var raw) && !double.IsNaN(raw))
+				level = (int)raw;
+
+			throw new LuaRuntimeException(value, addPosition: value is LuaString && level > 0);
 		}
 
 		private static LuaTuple Type(LuaCallingContext ctx, LuaValue[] args)
@@ -167,12 +175,16 @@ namespace AsyncLua.Libraries
 
 		private static LuaTuple Assert(LuaCallingContext ctx, LuaValue[] args)
 		{
-			if (args.Length > 0 && !args[0].ToBoolean())
-			{
-				var msg = args.Length > 1 ? args[1].ToString() : "assertion failed!";
-				throw new LuaRuntimeException(msg);
-			}
-			return args.Length > 0 ? new LuaTuple(args) : LuaTuple.Empty;
+			if (args.Length == 0)
+				throw new LuaRuntimeException("bad argument #1 to 'assert' (value expected)");
+
+			if (args[0].ToBoolean())
+				return new LuaTuple(args);
+
+			// Like Lua, a falsy assert raises its second argument as-is, defaulting to the
+			// "assertion failed!" string; a string message also gets the position.
+			var message = args.Length > 1 ? args[1] : new LuaString("assertion failed!");
+			throw new LuaRuntimeException(message, addPosition: message is LuaString);
 		}
 
 		private static async Task<LuaTuple> Pcall(LuaCallingContext ctx, LuaValue[] args)
@@ -187,7 +199,20 @@ namespace AsyncLua.Libraries
 			}
 			catch (LuaRuntimeException ex)
 			{
-				return new LuaTuple(LuaBoolean.False, new LuaString(ex.OriginalMessage));
+				// Lua hands pcall the positioned form of a string error; other values stay as raised.
+				return new LuaTuple(LuaBoolean.False, ex.ErrorValueWithPosition);
+			}
+			catch (OperationCanceledException)
+			{
+				// Cancellation is the host's decision, not a Lua error to be swallowed.
+				throw;
+			}
+			catch (Exception ex)
+			{
+				// A .NET exception escaping a library or a host binding is a runtime error from
+				// Lua's point of view: report it as `false, message` instead of tearing the
+				// script down through a try/catch that cannot see it.
+				return new LuaTuple(LuaBoolean.False, new LuaString(ex.Message));
 			}
 		}
 
@@ -205,7 +230,16 @@ namespace AsyncLua.Libraries
 			}
 			catch (LuaRuntimeException ex)
 			{
-				var errHandlerResult = await errHandlerFunc.InvokeAsync(ctx, new LuaString(ex.OriginalMessage));
+				var errHandlerResult = await errHandlerFunc.InvokeAsync(ctx, ex.ErrorValueWithPosition);
+				return new LuaTuple(errHandlerResult.Prepend(LuaBoolean.False));
+			}
+			catch (OperationCanceledException)
+			{
+				throw;
+			}
+			catch (Exception ex)
+			{
+				var errHandlerResult = await errHandlerFunc.InvokeAsync(ctx, new LuaString(ex.Message));
 				return new LuaTuple(errHandlerResult.Prepend(LuaBoolean.False));
 			}
 		}

@@ -415,12 +415,13 @@ public class BasicLibraryTests(ITestOutputHelper output)
 	// ── error() ────────────────────────────────────────────────────
 
 	[Fact]
-	public void Error_WithoutArgs_Throws()
+	public void Error_WithoutArgs_RaisesNil()
 	{
+		// error() raises nil, not the word "error": a Lua error is a value.
 		var state = CreateState();
 		var ex = Assert.Throws<LuaRuntimeException>(() =>
 			state.Execute("error()"));
-		Assert.Equal("error", ex.OriginalMessage);
+		Assert.IsType<LuaNil>(ex.ErrorValue);
 	}
 
 	[Fact]
@@ -435,6 +436,7 @@ public class BasicLibraryTests(ITestOutputHelper output)
 	[Fact]
 	public void Error_InTryCatch_IsCaught()
 	{
+		// catch binds the raw error value; the source position is what pcall hands back.
 		var state = CreateState();
 		var result = state.Execute(@"
 			try
