@@ -101,7 +101,7 @@ namespace AsyncLua.Parsing
 						['b'] = 2,
 						['B'] = 2
 					}), d => new LuaNumber(d)),
-					b => b.Map<double>(b => b.Number<double>(NumberFlags.StrictUnsignedScientific),
+					b => b.Map<double>(b => b.Number<double>(NumberFlags.UnsignedScientific),
 						d => new LuaNumber(d))
 				);
 
