@@ -918,7 +918,7 @@ namespace AsyncLua.Values
 
 			private LuaValueEqualityComparer() { }
 
-			public bool Equals(LuaValue x, LuaValue y)
+			public bool Equals(LuaValue? x, LuaValue? y)
 			{
 				if (ReferenceEquals(x, y))
 					return true;
@@ -927,7 +927,7 @@ namespace AsyncLua.Values
 				return x.Equals(y);
 			}
 
-			public int GetHashCode(LuaValue obj)
+			public int GetHashCode(LuaValue? obj)
 			{
 				return obj?.GetHashCode() ?? 0;
 			}
