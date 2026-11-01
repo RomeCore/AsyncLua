@@ -30,6 +30,11 @@ jobs:
   release:
     needs: check-release
     runs-on: ubuntu-latest
+    # id-token: write lets this job request the GitHub OIDC token that NuGet/login
+    # exchanges for a temporary nuget.org API key (Trusted Publishing).
+    permissions:
+      contents: write
+      id-token: write
 
     steps:
     - uses: actions/checkout@v4
@@ -63,5 +68,15 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    # Trusted Publishing policy required on nuget.org (https://www.nuget.org/account/trustedpublishing):
+    #   Repository Owner: RomeCore | Repository: AsyncLua | Workflow File: release.yml
+    # `user` is the nuget.org profile name, not the email. The returned key lives 1 hour,
+    # so the login has to stay right next to the push.
+    - name: NuGet login (OIDC -> temporary API key)
+      id: nuget-login
+      uses: NuGet/login@v1
+      with:
+        user: ${{ secrets.NUGET_USER || 'RomeCore' }}
+
     - name: Publish to NuGet
-      run: dotnet nuget push "**/AsyncLua.${{ needs.check-release.outputs.version }}.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+      run: dotnet nuget push "**/AsyncLua.${{ needs.check-release.outputs.version }}.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
