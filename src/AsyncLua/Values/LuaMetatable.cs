@@ -32,6 +32,15 @@ namespace AsyncLua.Values
 		private readonly LuaValue[] _handlers;
 
 		/// <summary>
+		/// The Lua table this metatable wraps, when it was created by <c>setmetatable</c>.
+		/// When set, the table is the single source of truth: handlers present in the array
+		/// win, everything else is read from - and written back to - the table. This is what
+		/// makes <c>getmetatable(t) == mt</c> hold and lets metamethods added after the call
+		/// take effect, exactly like Lua.
+		/// </summary>
+		private readonly LuaTable? _source;
+
+		/// <summary>
 		/// Initialises a new, empty metatable. All events default to <c>nil</c>.
 		/// </summary>
 		public LuaMetatable()
@@ -39,6 +48,19 @@ namespace AsyncLua.Values
 			_handlers = new LuaValue[EventNames.Length];
 			for (int i = 0; i < _handlers.Length; i++)
 				_handlers[i] = LuaNil.Instance;
+		}
+
+		/// <summary>
+		/// Initialises a metatable backed by a Lua table, so the handlers are looked up in
+		/// that table on every access instead of being copied out of it once.
+		/// </summary>
+		/// <param name="source">The table holding the <c>__name</c>-keyed handlers.</param>
+		private LuaMetatable(LuaTable source)
+		{
+			_handlers = new LuaValue[EventNames.Length];
+			for (int i = 0; i < _handlers.Length; i++)
+				_handlers[i] = LuaNil.Instance;
+			_source = source;
 		}
 
 		/// <summary>
@@ -51,16 +73,30 @@ namespace AsyncLua.Values
 				throw new ArgumentNullException(nameof(other));
 
 			_handlers = new LuaValue[EventNames.Length];
-			Array.Copy(other._handlers, _handlers, EventNames.Length);
+			if (other._source is null)
+			{
+				Array.Copy(other._handlers, _handlers, EventNames.Length);
+			}
+			else
+			{
+				// A clone must not stay attached to the original's table.
+				for (int i = 0; i < _handlers.Length; i++)
+					_handlers[i] = other.Get((LuaMetatableEvent)i);
+			}
 		}
 
 		/// <summary>
-		/// Creates a <see cref="LuaMetatable"/> from a Lua table by reading its string-keyed
-		/// metamethod handlers (e.g., <c>t["__add"]</c> → <see cref="LuaMetatableEvent.Add"/>).
-		/// Keys that are not recognised metamethod names are silently ignored.
+		/// Creates a <see cref="LuaMetatable"/> backed by a Lua table whose string-keyed
+		/// metamethod handlers (e.g., <c>t["__add"]</c> → <see cref="LuaMetatableEvent.Add"/>)
+		/// are read on every access. Keys that are not recognised metamethod names are ignored.
 		/// </summary>
-		/// <param name="table">The table to convert. Must not be <see langword="null"/>.</param>
-		/// <returns>A new <see cref="LuaMetatable"/> populated from the table's entries.</returns>
+		/// <remarks>
+		/// The table is not copied: it stays the metatable, so mutating it afterwards changes
+		/// the behaviour of every value it is attached to, and <see cref="ToTable"/> hands the
+		/// very same table back.
+		/// </remarks>
+		/// <param name="table">The table to wrap. Must not be <see langword="null"/>.</param>
+		/// <returns>A new <see cref="LuaMetatable"/> reading its handlers from the table.</returns>
 		/// <exception cref="ArgumentNullException">
 		/// Thrown if <paramref name="table"/> is <see langword="null"/>.
 		/// </exception>
@@ -69,26 +105,23 @@ namespace AsyncLua.Values
 			if (table is null)
 				throw new ArgumentNullException(nameof(table));
 
-			var mt = new LuaMetatable();
-
-			foreach (var kvp in table)
-			{
-				if (kvp.Key is LuaString keyStr && TryGetEventByName(keyStr.Value, out var evt))
-				{
-					mt[evt] = kvp.Value;
-				}
-			}
-
-			return mt;
+			return new LuaMetatable(table);
 		}
 
 		/// <summary>
 		/// Converts this metatable to a Lua table, with string keys corresponding
 		/// to the metamethod names and values corresponding to the handlers.
 		/// </summary>
-		/// <returns>A new <see cref="LuaTable"/> populated with the metatable's handlers.</returns>
+		/// <returns>
+		/// The backing table when this metatable wraps one (so <c>getmetatable(t)</c> returns
+		/// the table that was passed to <c>setmetatable</c>, as in Lua); otherwise a new
+		/// <see cref="LuaTable"/> populated with a snapshot of the handlers.
+		/// </returns>
 		public LuaTable ToTable()
 		{
+			if (_source is not null)
+				return _source;
+
 			var table = new LuaTable();
 
 			for (int i = 0; i < _handlers.Length; i++)
@@ -108,11 +141,8 @@ namespace AsyncLua.Values
 		/// <returns>The handler <see cref="LuaValue"/>, or <see cref="LuaNil.Instance"/> if none is set.</returns>
 		public LuaValue this[LuaMetatableEvent evt]
 		{
-			[MethodImpl(MethodImplOptions.AggressiveInlining)]
-			get => _handlers[(int)evt];
-
-			[MethodImpl(MethodImplOptions.AggressiveInlining)]
-			set => _handlers[(int)evt] = value ?? LuaNil.Instance;
+			get => Get(evt);
+			set => Set(evt, value);
 		}
 
 		/// <summary>
@@ -135,8 +165,14 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="evt">The metamethod event.</param>
 		/// <returns>The handler <see cref="LuaValue"/>, or <see cref="LuaNil.Instance"/> if none is set.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public LuaValue Get(LuaMetatableEvent evt) => _handlers[(int)evt];
+		public LuaValue Get(LuaMetatableEvent evt)
+		{
+			var handler = _handlers[(int)evt];
+			if (handler.Type != LuaType.Nil || _source is null)
+				return handler;
+
+			return _source.Get(EventNames[(int)evt]);
+		}
 
 		/// <summary>
 		/// Sets the metamethod handler for the specified event.
@@ -144,9 +180,16 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="evt">The metamethod event.</param>
 		/// <param name="handler">The handler value to set, or <see langword="null"/> to clear.</param>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public void Set(LuaMetatableEvent evt, LuaValue handler) =>
+		public void Set(LuaMetatableEvent evt, LuaValue handler)
+		{
+			if (_source is not null)
+			{
+				_source.Set(EventNames[(int)evt], handler ?? LuaNil.Instance);
+				return;
+			}
+
 			_handlers[(int)evt] = handler ?? LuaNil.Instance;
+		}
 
 		/// <summary>
 		/// Gets the metamethod handler by its Lua string name.
@@ -174,8 +217,7 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="evt">The metamethod event.</param>
 		/// <returns><see langword="true"/> if a handler (other than <c>nil</c>) is set.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public bool HasEvent(LuaMetatableEvent evt) => _handlers[(int)evt].Type != LuaType.Nil;
+		public bool HasEvent(LuaMetatableEvent evt) => Get(evt).Type != LuaType.Nil;
 
 		/// <summary>
 		/// Returns the Lua metatable event name for the given event (e.g., <c>"__add"</c>).
@@ -225,10 +267,10 @@ namespace AsyncLua.Values
 		/// Returns an enumerator over all events that have non-nil handlers.
 		/// </summary>
 		/// <returns>An enumerator over (event, handler) pairs.</returns>
-		public Enumerator GetEnumerator() => new Enumerator(_handlers);
+		public Enumerator GetEnumerator() => new Enumerator(this);
 
 		IEnumerator<KeyValuePair<LuaMetatableEvent, LuaValue>> IEnumerable<KeyValuePair<LuaMetatableEvent, LuaValue>>.GetEnumerator()
-			=> new BoxedEnumerator(_handlers);
+			=> new BoxedEnumerator(this);
 
 		IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
@@ -237,12 +279,12 @@ namespace AsyncLua.Values
 		/// </summary>
 		public struct Enumerator : IEnumerator<KeyValuePair<LuaMetatableEvent, LuaValue>>
 		{
-			private readonly LuaValue[] _handlers;
+			private readonly LuaMetatable _owner;
 			private int _index;
 
-			internal Enumerator(LuaValue[] handlers)
+			internal Enumerator(LuaMetatable owner)
 			{
-				_handlers = handlers;
+				_owner = owner;
 				_index = -1;
 			}
 
@@ -256,11 +298,12 @@ namespace AsyncLua.Values
 			{
 				while (++_index < EventNames.Length)
 				{
-					if (_handlers[_index].Type != LuaType.Nil)
+					var handler = _owner.Get((LuaMetatableEvent)_index);
+					if (handler.Type != LuaType.Nil)
 					{
 						Current = new KeyValuePair<LuaMetatableEvent, LuaValue>(
 							(LuaMetatableEvent)_index,
-							_handlers[_index]);
+							handler);
 						return true;
 					}
 				}
@@ -278,7 +321,7 @@ namespace AsyncLua.Values
 		{
 			private Enumerator _inner;
 
-			public BoxedEnumerator(LuaValue[] handlers) => _inner = new Enumerator(handlers);
+			public BoxedEnumerator(LuaMetatable owner) => _inner = new Enumerator(owner);
 
 			public KeyValuePair<LuaMetatableEvent, LuaValue> Current => _inner.Current;
 			object IEnumerator.Current => _inner.Current;

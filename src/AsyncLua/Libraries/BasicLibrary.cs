@@ -323,18 +323,21 @@ namespace AsyncLua.Libraries
 
 		private static LuaTuple SetMetatable(LuaCallingContext ctx, LuaValue[] args)
 		{
-			if (args.Length < 2)
-				throw new LuaRuntimeException("setmetatable: expected at least 2 arguments, got " + args.Length);
-
-			var obj = args[0];
-
-			// Check if the object has a metatable (or can have one).
-			if (obj.Metatable is null)
-				throw new LuaRuntimeException("setmetatable: first argument must have a metatable, got " + obj.TypeName);
-
-			// Check if metatable is protected.
-			if (obj.Metatable.HasEvent(LuaMetatableEvent.MetaTable))
+			// A metatable carrying __metatable is locked against replacement, whatever the
+			// value is - checking this first keeps the diagnostic about the lock rather than
+			// about the type of a userdata whose metatable the host owns.
+			if (args.Length >= 1 && args[0].Metatable is { } current && current.HasEvent(LuaMetatableEvent.MetaTable))
 				throw new LuaRuntimeException("cannot change a protected metatable");
+
+			// Lua only lets a table carry an individual metatable, so a fresh table is the
+			// normal case rather than an error: a table without a metatable is exactly what
+			// this function is asked to give one to.
+			if (args.Length < 1 || args[0] is not LuaTable obj)
+				throw new LuaRuntimeException("bad argument #1 to 'setmetatable' (table expected, got " +
+					(args.Length == 0 ? "no value" : args[0].TypeName) + ")");
+
+			if (args.Length < 2)
+				throw new LuaRuntimeException("bad argument #2 to 'setmetatable' (nil or table expected, got no value)");
 
 			if (args[1] is LuaNil)
 			{
@@ -343,7 +346,7 @@ namespace AsyncLua.Libraries
 			}
 
 			if (args[1] is not LuaTable mtTable)
-				throw new LuaRuntimeException("setmetatable: second argument must be a table or nil, got " + args[1].TypeName);
+				throw new LuaRuntimeException("bad argument #2 to 'setmetatable' (nil or table expected, got " + args[1].TypeName + ")");
 
 			obj.Metatable = LuaMetatable.FromTable(mtTable);
 			return new LuaTuple(obj);
