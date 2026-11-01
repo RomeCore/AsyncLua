@@ -149,10 +149,12 @@ public class BasicLibraryTests(ITestOutputHelper output)
 	}
 
 	[Fact]
-	public void ToNumber_InvalidString_Throws()
+	public void ToNumber_InvalidString_ReturnsNil()
 	{
+		// A failed conversion is a nil, not an error: `tonumber(x) or 0` has to stay a guard.
 		var state = CreateState();
-		Assert.Throws<LuaRuntimeException>(() => state.Execute("return tonumber('not_a_number')"));
+		var result = state.Execute("return tonumber('not_a_number')");
+		Assert.IsType<LuaNil>(result.First);
 	}
 
 	[Fact]

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using AsyncLua.Parsing.Statements;
@@ -134,13 +135,18 @@ namespace AsyncLua.Libraries
 		private static async Task<LuaTuple> ToNumber(LuaCallingContext ctx, LuaValue[] args)
 		{
 			if (args.Length == 0)
-				throw new LuaRuntimeException("tonumber: expected at least 1 argument, got 0");
+				throw new LuaRuntimeException("bad argument #1 to 'tonumber' (value expected)");
+
+			// A base turns the call into an integer parse: the text is required there, and a number
+			// argument is refused instead of being converted.
+			if (args.Length > 1 && args[1] is not LuaNil)
+				return ToNumberInBase(args);
 
 			var value = args[0];
 
-			// Lua behavior: return nil if input is nil
-			if (value is LuaNil)
-				return new LuaTuple(LuaNil.Instance);
+			// A number needs no conversion - it is returned as it came in.
+			if (value is LuaNumber)
+				return new LuaTuple(value);
 
 			// Check for __tonumber metamethod (individual metatable first).
 			var mt = value.Metatable;
@@ -160,10 +166,131 @@ namespace AsyncLua.Libraries
 					return await func.InvokeAsync(ctx, new[] { value });
 			}
 
-			if (value.TryToNumber(out var number))
-				return new LuaTuple(new LuaNumber(number));
+			// Anything that is not a numeral string simply has no conversion: nil is the answer,
+			// not an error, exactly as in Lua.
+			if (value is not LuaString text)
+				return new LuaTuple(LuaNil.Instance);
 
-			throw new LuaRuntimeException("tonumber: cannot convert to number");
+			return new LuaTuple(ParseNumeral(text.Value) ?? LuaNil.Instance);
+		}
+
+		/// <summary>
+		/// Implements <c>tonumber(text, base)</c>: digits are read in the given base, a sign and
+		/// surrounding spaces are allowed, and any other character fails the whole conversion.
+		/// </summary>
+		private static LuaTuple ToNumberInBase(LuaValue[] args)
+		{
+			if (args[0] is not LuaString text)
+				throw new LuaRuntimeException("bad argument #1 to 'tonumber' (string expected, got " + args[0].TypeName + ")");
+
+			if (!args[1].TryToNumber(out var rawBase) || rawBase != Math.Truncate(rawBase) || double.IsInfinity(rawBase))
+				throw new LuaRuntimeException("bad argument #2 to 'tonumber' (number has no integer representation)");
+
+			if (rawBase < 2 || rawBase > 36)
+				throw new LuaRuntimeException("bad argument #2 to 'tonumber' (base out of range)");
+
+			return new LuaTuple(ParseInBase(text.Value, (int)rawBase) ?? LuaNil.Instance);
+		}
+
+		/// <summary>
+		/// Converts a numeral the way Lua does: decimal with an optional fraction and exponent, or
+		/// a hexadecimal integer, with the sign and surrounding spaces allowed.
+		/// </summary>
+		/// <returns>The number, or <see langword="null"/> when the text is not exactly one numeral.</returns>
+		private static LuaValue? ParseNumeral(string text)
+		{
+			var digits = text.Trim();
+			if (digits.Length == 0)
+				return null;
+
+			// Lua refuses "inf" and "nan" outright; without this check double.TryParse would accept
+			// .NET's spellings of both.
+			if (digits.IndexOf('n') >= 0 || digits.IndexOf('N') >= 0)
+				return null;
+
+			bool negative = false;
+			int start = 0;
+			if (digits[0] == '+' || digits[0] == '-')
+			{
+				negative = digits[0] == '-';
+				start = 1;
+			}
+
+			// Hexadecimal numerals are read by hand: NumberStyles does not cover a 0x prefix,
+			// and hexadecimal floats (0x1p4) are a documented lexer gap rather than a tonumber one.
+			if (start + 1 < digits.Length && digits[start] == '0' &&
+				(digits[start + 1] == 'x' || digits[start + 1] == 'X'))
+			{
+				double hexadecimal = 0;
+				int hexadecimalDigits = 0;
+				for (int i = start + 2; i < digits.Length; i++)
+				{
+					int digit = DigitValue(digits[i]);
+					if (digit < 0 || digit >= 16)
+						return null;
+					hexadecimal = hexadecimal * 16 + digit;
+					hexadecimalDigits++;
+				}
+
+				if (hexadecimalDigits == 0)
+					return null;
+
+				return new LuaNumber(negative ? -hexadecimal : hexadecimal);
+			}
+
+			if (!double.TryParse(digits, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+				return null;
+
+			return new LuaNumber(value);
+		}
+
+		/// <summary>
+		/// Converts a signed sequence of digits in the given base, failing on the first character
+		/// that is not a digit of that base.
+		/// </summary>
+		/// <returns>The number, or <see langword="null"/> when the text is not a clean digit sequence.</returns>
+		private static LuaValue? ParseInBase(string text, int numberBase)
+		{
+			var digits = text.Trim();
+			if (digits.Length == 0)
+				return null;
+
+			bool negative = false;
+			int start = 0;
+			if (digits[0] == '+' || digits[0] == '-')
+			{
+				negative = digits[0] == '-';
+				start = 1;
+			}
+
+			if (start >= digits.Length)
+				return null;
+
+			double value = 0;
+			for (int i = start; i < digits.Length; i++)
+			{
+				int digit = DigitValue(digits[i]);
+				if (digit < 0 || digit >= numberBase)
+					return null;
+				value = value * numberBase + digit;
+			}
+
+			return new LuaNumber(negative ? -value : value);
+		}
+
+		/// <summary>
+		/// Returns the value of a digit character in any base up to 36, or -1 when the character
+		/// is not a digit at all.
+		/// </summary>
+		private static int DigitValue(char character)
+		{
+			if (character >= '0' && character <= '9')
+				return character - '0';
+			if (character >= 'a' && character <= 'z')
+				return character - 'a' + 10;
+			if (character >= 'A' && character <= 'Z')
+				return character - 'A' + 10;
+			return -1;
 		}
 
 		private static LuaTuple IsAsync(LuaCallingContext ctx, LuaValue[] args)
