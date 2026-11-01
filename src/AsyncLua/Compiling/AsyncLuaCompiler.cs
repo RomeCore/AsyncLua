@@ -1263,6 +1263,15 @@ namespace AsyncLua.Compiling
 			// so we don't compile it into a register.
 			int nonVarargExplicitCount = lastIsVararg ? node.Arguments.Length - 1 : node.Arguments.Length;
 
+			// Lua's "last argument expands" rule: a trailing call or await keeps every value
+			// it produced. A trailing vararg is the same idea, but its values come from the
+			// frame instead of a register range, so it travels as VarArgCall instead.
+			ExpressionNode? trailingArg = node.Arguments.Length > 0
+				? node.Arguments[node.Arguments.Length - 1]
+				: null;
+			bool trailingExpands = !lastIsVararg &&
+				(trailingArg is FunctionCallNode || trailingArg is AwaitExpressionNode);
+
 			// Calculate total register slots needed for fixed arguments:
 			// function slot (1) + explicit non-vararg args + implicit self (if method call).
 			int totalFixedSlots = 1 + nonVarargExplicitCount;
@@ -1298,11 +1307,31 @@ namespace AsyncLua.Compiling
 			// arguments that follow it, so arguments are compiled as single values.
 			int argOffset = node.Method is not null ? 1 : 0;
 			for (int i = 0; i < nonVarargExplicitCount; i++)
-				CompileExpressionSingle(node.Arguments[i], argBase + argOffset + i);
+			{
+				int argReg = argBase + argOffset + i;
+				if (!trailingExpands || i < nonVarargExplicitCount - 1)
+				{
+					CompileExpressionSingle(node.Arguments[i], argReg);
+					continue;
+				}
+
+				// Compile the expanding trailing argument as a full expression and let the
+				// CALL keep all of its results (C=0), so the frame publishes the exact top
+				// of what it produced. An await already emits C=0 on its last AWAIT.
+				CompileExpression(node.Arguments[i], argReg);
+				if (node.Arguments[i] is FunctionCallNode)
+					PatchLastCallToExpand();
+
+				// Reserve headroom for however many values the trailing call produced.
+				while (_nextRegister < argReg + 16)
+					AllocateRegister();
+			}
 
 			OpFlags callFlags = OpFlags.None;
 			if (lastIsVararg)
 				callFlags |= OpFlags.VarArgCall;
+			else if (trailingExpands)
+				callFlags |= OpFlags.ExpandArgs;
 
 			Emit(OpCode.CALL, (byte)funcReg, (ushort)fixedArgCount, (ushort)1, callFlags); // want 1 result
 		}

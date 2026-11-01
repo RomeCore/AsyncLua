@@ -32,5 +32,14 @@ namespace AsyncLua.Interpreting
 		/// read from registers. Used when the last argument expression is <c>...</c>.
 		/// </summary>
 		VarArgCall = 1 << 3,
+
+		/// <summary>
+		/// The last argument of a CALL expands to however many values it produced: the
+		/// arguments run from <c>R[A+1]</c> up to the frame's current register top instead
+		/// of stopping after <see cref="Instruction.B"/> fixed slots. Used when the last
+		/// argument expression is a call or an await, mirroring Lua's "last argument
+		/// expands" rule.
+		/// </summary>
+		ExpandArgs = 1 << 4,
 	}
 }

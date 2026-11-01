@@ -883,6 +883,24 @@ namespace AsyncLua.Interpreting
 										for (int i = 0; i < frameVarArgs.Length; i++)
 											args[fixedCount + i] = frameVarArgs[i];
 									}
+									else if (inst.Flags.HasFlag(OpFlags.ExpandArgs))
+									{
+										// The trailing argument produced a variable number of values: the
+										// arguments run from R[A+1] up to the register top that its CALL/AWAIT
+										// published. Nothing is read beyond that top, so a producer that yields
+										// no values at all leaves exactly inst.B arguments behind (its own
+										// slot included, which is the empty trailing position).
+										int expandBase = inst.A + 1;
+										int total = frame.RegisterTop - expandBase;
+										if (total < 0)
+											total = 0;
+										int limit = registers.Length - expandBase;
+										if (total > limit)
+											total = limit;
+										args = new LuaValue[total];
+										for (int i = 0; i < total; i++)
+											args[i] = registers[expandBase + i];
+									}
 									else
 									{
 										args = new LuaValue[inst.B];
