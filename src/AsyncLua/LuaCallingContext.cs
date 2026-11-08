@@ -74,6 +74,49 @@ namespace AsyncLua
 		}
 
 		/// <summary>
+		/// Creates a shallow copy of this context.
+		/// </summary>
+		public LuaCallingContext Clone()
+		{
+			return new LuaCallingContext(State, Globals, Settings)
+			{
+				Print = Print,
+				Warn = Warn,
+				CancellationToken = CancellationToken
+			};
+		}
+
+		/// <summary>
+		/// Creates a shallow copy of this context with a cancellation token removed.
+		/// </summary>
+		public LuaCallingContext WithoutCancellation()
+		{
+			var clone = Clone();
+			clone.CancellationToken = default;
+			return clone;
+		}
+
+		/// <summary>
+		/// Creates a shallow copy of this context with a new cancellation token.
+		/// </summary>
+		public LuaCallingContext WithCancellation(CancellationToken token)
+		{
+			var clone = Clone();
+			clone.CancellationToken = token;
+			return clone;
+		}
+
+		/// <summary>
+		/// Creates a shallow copy of this context with a new cancellation token that is linked to this context's token.
+		/// </summary>
+		public LuaCallingContext WithLinkedCancellation(CancellationToken token)
+		{
+			var clone = Clone();
+			clone.CancellationToken = CancellationTokenSource.CreateLinkedTokenSource(token, CancellationToken).Token;
+			return clone;
+		}
+
+		/// <summary>
 		/// Parses and compiles the specified Lua code into a <see cref="CompiledLuaCode"/> bound to
 		/// this context, so that it can be executed later within this context's environment, settings
 		/// and print/warn sinks.
