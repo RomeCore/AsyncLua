@@ -15,7 +15,7 @@ namespace AsyncLua.Libraries
 	/// Implements Lua 5.5 pattern matching for the string library.
 	/// Provides <c>find</c>, <c>match</c>, <c>gmatch</c>, and <c>gsub</c> operations.
 	/// </summary>
-	internal static class LuaPatternMatcher
+	public static class LuaPatternMatcher
 	{
 		private const char L_ESC = '%';
 		private const int MAX_CAPTURES = 32;
@@ -559,72 +559,73 @@ namespace AsyncLua.Libraries
 
 		// ── Find auxiliary ───────────────────────────────────────────
 
+		/// <summary>
+		/// Implements <c>string.find</c>: locates the first match and reports where it lies.
+		/// </summary>
+		/// <param name="source">The string to search.</param>
+		/// <param name="pattern">A Lua pattern, or a literal substring when <paramref name="plain"/> is set.</param>
+		/// <param name="init">The 1-based index to start searching from; a negative index counts from the end.</param>
+		/// <param name="plain">Whether to treat the pattern as a literal substring.</param>
+		/// <returns>
+		/// The 1-based start and the end-exclusive end, then one value per capture; <c>nil</c> when nothing matched.
+		/// </returns>
 		public static LuaTuple Find(string source, string pattern, int init, bool plain)
 		{
-			int sourceEnd = source.Length;
 			int startPos = NormaliseIndex(init, source.Length) - 1; // convert to 0-based
-			if (startPos > sourceEnd)
+			if (!TrySearch(source, pattern, startPos, plain, out int s, out int e, out var ms))
 				return new LuaTuple(LuaNil.Instance);
 
-			int patternLen = pattern.Length;
+			var result = new List<LuaValue>
+			{
+				new LuaNumber(s + 1),
+				new LuaNumber(e)
+			};
+			// Only add captures if pattern has explicit captures
+			if (ms is not null && ms.Level > 0)
+				result.AddRange(PushCaptures(ms, s, e));
+			return new LuaTuple(result.ToArray());
+		}
 
+		// ── Search core ─────────────────────────────────────────────
+
+		/// <summary>
+		/// Searches from a 0-based position and reports the bounds of the first match.
+		/// </summary>
+		/// <param name="source">The string to search.</param>
+		/// <param name="pattern">A Lua pattern, or a literal substring when <paramref name="plain"/> is set.</param>
+		/// <param name="startPos">The 0-based index to start searching from.</param>
+		/// <param name="plain">Whether to treat the pattern as a literal substring.</param>
+		/// <param name="start">The 0-based match start.</param>
+		/// <param name="end">The 0-based, end-exclusive match end.</param>
+		/// <param name="state">
+		/// The match state carrying the captures, or <c>null</c> when the pattern had no specials and the
+		/// search short-circuited to a literal one.
+		/// </param>
+		/// <returns><c>true</c> when a match was found.</returns>
+		private static bool TrySearch(string source, string pattern, int startPos, bool plain, out int start, out int end, out MatchState? state)
+		{
+			start = 0;
+			end = 0;
+			state = null;
+
+			int sourceEnd = source.Length;
+			if (startPos > sourceEnd)
+				return false;
+
+			int patternLen = pattern.Length;
 			if (plain || NoSpecials(pattern, patternLen))
 			{
 				int? found = SimpleFind(source, startPos, sourceEnd, pattern, patternLen);
-				if (found.HasValue)
-				{
-					return new LuaTuple(
-						new LuaNumber(found.Value + 1),
-						new LuaNumber(found.Value + patternLen));
-				}
-				return new LuaTuple(LuaNil.Instance);
+				if (!found.HasValue)
+					return false;
+
+				start = found.Value;
+				end = found.Value + patternLen;
+				return true;
 			}
-			else
-			{
-				var ms = new MatchState(source, 0, sourceEnd, pattern, patternLen);
-				bool anchor = pattern.Length > 0 && pattern[0] == '^';
-				if (anchor)
-				{
-					ms.Pattern = pattern.Substring(1);
-					ms.PatternEnd--;
-				}
 
-				int s = startPos;
-				do
-				{
-					ms.MatchDepth = MAX_CCALLS;
-					ms.Level = 0;
-					int? res = Match(ms, s, 0);
-					if (res.HasValue)
-					{
-						var result = new List<LuaValue>
-						{
-							new LuaNumber(s + 1),
-							new LuaNumber(res.Value)
-						};
-						// Only add captures if pattern has explicit captures
-						if (ms.Level > 0)
-							result.AddRange(PushCaptures(ms, s, res.Value));
-						return new LuaTuple(result.ToArray());
-					}
-				} while (s++ < sourceEnd && !anchor);
-
-				return new LuaTuple(LuaNil.Instance);
-			}
-		}
-
-		// ── Match ────────────────────────────────────────────────────
-
-		public static LuaTuple Match(string source, string pattern, int init)
-		{
-			int sourceEnd = source.Length;
-			int startPos = NormaliseIndex(init, source.Length) - 1; // 0-based
-			if (startPos > sourceEnd)
-				return new LuaTuple(LuaNil.Instance);
-
-			int patternLen = pattern.Length;
 			var ms = new MatchState(source, 0, sourceEnd, pattern, patternLen);
-			bool anchor = pattern.Length > 0 && pattern[0] == '^';
+			bool anchor = pattern[0] == '^';
 			if (anchor)
 			{
 				ms.Pattern = pattern.Substring(1);
@@ -639,18 +640,78 @@ namespace AsyncLua.Libraries
 				int? res = Match(ms, s, 0);
 				if (res.HasValue)
 				{
-					var captures = PushCaptures(ms, s, res.Value);
-					if (captures.Count == 0)
-						return new LuaTuple(new LuaString(source.Substring(s, res.Value - s)));
-					return new LuaTuple(captures.ToArray());
+					start = s;
+					end = res.Value;
+					state = ms;
+					return true;
 				}
 			} while (s++ < sourceEnd && !anchor);
 
-			return new LuaTuple(LuaNil.Instance);
+			return false;
+		}
+
+		// ── Match ────────────────────────────────────────────────────
+
+		/// <summary>
+		/// Implements <c>string.match</c>: returns the captures of the first match, or the whole match when the pattern has none.
+		/// </summary>
+		/// <param name="source">The string to search.</param>
+		/// <param name="pattern">The Lua pattern to match.</param>
+		/// <param name="init">The 1-based index to start searching from; a negative index counts from the end.</param>
+		/// <returns>The captures, or the matched text, or <c>nil</c> when nothing matched.</returns>
+		public static LuaTuple Match(string source, string pattern, int init)
+		{
+			int startPos = NormaliseIndex(init, source.Length) - 1; // 0-based
+			if (!TrySearch(source, pattern, startPos, false, out int s, out int e, out var ms))
+				return new LuaTuple(LuaNil.Instance);
+
+			// TrySearch short-circuits a pattern without specials to a literal search, which keeps no capture state.
+			if (ms is null)
+				return new LuaTuple(new LuaString(source.Substring(s, e - s)));
+
+			var captures = PushCaptures(ms, s, e);
+			if (captures.Count == 0)
+				return new LuaTuple(new LuaString(source.Substring(s, e - s)));
+			return new LuaTuple(captures.ToArray());
+		}
+
+		// ── Host-facing match enumeration ───────────────────────
+
+		/// <summary>
+		/// Enumerates the matches of <paramref name="pattern"/> in <paramref name="source"/> as 0-based spans.
+		/// </summary>
+		/// <param name="source">The string to search.</param>
+		/// <param name="pattern">A Lua pattern, or a literal substring when <paramref name="plain"/> is set.</param>
+		/// <param name="init">The 1-based index to start searching from.</param>
+		/// <param name="plain">Whether to treat the pattern as a literal substring.</param>
+		/// <returns>The matches in order, each as a start index and an end-exclusive index.</returns>
+		/// <remarks>
+		/// A match that consumes nothing is reported once at its position and the search then moves past it,
+		/// so the enumeration always advances - a host splitting on the result cannot spin on an empty match.
+		/// </remarks>
+		public static IEnumerable<(int Start, int End)> EnumerateMatches(string source, string pattern, int init = 1, bool plain = false)
+		{
+			int position = NormaliseIndex(init, source.Length) - 1; // 0-based
+			while (TrySearch(source, pattern, position, plain, out int start, out int end, out _))
+			{
+				yield return (start, end);
+				position = end > start ? end : start + 1;
+			}
 		}
 
 		// ── GMatch (returns iterator function) ───────────────────────
 
+		/// <summary>
+		/// Implements <c>string.gmatch</c>: builds an iterator over the matches of a pattern.
+		/// </summary>
+		/// <param name="source">The string to scan.</param>
+		/// <param name="pattern">The Lua pattern to match.</param>
+		/// <param name="init">The 1-based index to start scanning from.</param>
+		/// <returns>A function that yields the captures of each match, or its text, and nothing once the scan is spent.</returns>
+		/// <remarks>
+		/// A match that consumes nothing is skipped when it starts where the previous one ended, which is the rule
+		/// that keeps an empty-matching pattern from yielding the same position forever.
+		/// </remarks>
 		public static LuaFunction GMatch(string source, string pattern, int init)
 		{
 			int sourceEnd = source.Length;
@@ -692,6 +753,15 @@ namespace AsyncLua.Libraries
 
 		// ── GSub ─────────────────────────────────────────────────────
 
+		/// <summary>
+		/// Implements <c>string.gsub</c>: replaces up to <paramref name="maxReplacements"/> matches.
+		/// </summary>
+		/// <param name="source">The string to rewrite.</param>
+		/// <param name="pattern">The Lua pattern to match.</param>
+		/// <param name="repl">A replacement string, a table keyed by the first capture, or a function called with the captures.</param>
+		/// <param name="maxReplacements">The maximum number of replacements to make.</param>
+		/// <param name="context">The calling context, needed only when <paramref name="repl"/> is a function.</param>
+		/// <returns>The rewritten string and the number of replacements made.</returns>
 		public static LuaTuple GSub(string source, string pattern, LuaValue repl, int maxReplacements, LuaCallingContext? context = null)
 		{
 			int sourceLen = source.Length;
