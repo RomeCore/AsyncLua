@@ -1055,6 +1055,29 @@ namespace AsyncLua.Interpreting
 										for (int i = 0; i < argCount; i++)
 											callArgs[1 + i] = args[i];
 
+										// An async metamethod is a call like any other: the caller receives
+										// the task, not the value it will produce. Awaiting here would make
+										// obj(...) silently resolve while f(...) returns a task, and the two
+										// spellings of the same call would need different await rules.
+										if (async && callFunc.IsAsync)
+										{
+											try
+											{
+												var csharpTask = callFunc.InvokeAsync(context, callArgs);
+												registers[inst.A] = LuaTask.FromTask(csharpTask);
+												if (inst.A + 1 < registers.Length)
+													registers[inst.A + 1] = LuaNil.Instance;
+												// The call produces a single value (the LuaTask) at R[A].
+												frame.RegisterTop = inst.A + 1;
+											}
+											catch (LuaRuntimeException ex) when (!ex.HasPosition && ex.AddPosition)
+											{
+												throw WithPosition(ex, function, pc - 1);
+											}
+
+											break;
+										}
+
 										LuaTuple results;
 										if (async)
 											results = await callFunc.InvokeAsync(context, callArgs);
