@@ -2,6 +2,7 @@ using AsyncLua.Compiling;
 using AsyncLua.Interpreting;
 using AsyncLua.Parsing;
 using AsyncLua.Values;
+using RCParsing;
 
 namespace AsyncLua.Tests.Compiling;
 
@@ -348,8 +349,14 @@ public class CompilerIntegrationTests
 	}
 
 	[Fact]
-	public void CallNonFunction_ThrowsRuntimeError()
+	public void CallNonFunction_WithoutParens_ThrowsParsingError()
 	{
-		Assert.Throws<LuaRuntimeException>(() => CompileAndExecute("return 42()"));
+		Assert.Throws<ParsingException>(() => CompileAndExecute("return 42()"));
+	}
+
+	[Fact]
+	public void CallNonFunction_WithParens_ThrowsRuntimeError()
+	{
+		Assert.Throws<LuaRuntimeException>(() => CompileAndExecute("return (42)()"));
 	}
 }

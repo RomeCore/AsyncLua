@@ -963,14 +963,14 @@ public class StringLibraryTests
 	{
 		var state = CreateState();
 		// This should throw because 'len' is not called as method, so 'len' will get empty args
-		Assert.Throws<LuaRuntimeException>(() => state.Execute("return 'a b c'.len()"));
+		Assert.Throws<LuaRuntimeException>(() => state.Execute("return ('a b c').len()"));
 	}
 
 	[Fact]
 	public void TypeMetatables_Len_MethodStyle()
 	{
 		var state = CreateState();
-		var result = state.Execute("return 'a b c':len()");
+		var result = state.Execute("return ('a b c'):len()");
 		Assert.Equal(5.0, Assert.IsType<LuaNumber>(result.First).Value);
 	}
 

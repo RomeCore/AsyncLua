@@ -38,13 +38,66 @@ namespace AsyncLua.Parsing
 		{
 		}
 
+		static ParsedElement LevelledStringMatchFunction(CustomTokenPattern self, string input,
+			int start, int end, object? parameter, bool calculateIntermediateValue,
+			ref ParsingError furthestError, TokenPattern[] children)
+		{
+			int pos = start;
+			if (pos < end && input[start] == '[')
+			{
+				pos++;
+
+				int eqsignCount = 0; // Number of equal signs
+				while (pos + eqsignCount < end && input[pos + eqsignCount] == '=')
+					eqsignCount++;
+				pos += eqsignCount;
+
+				if (pos < end && input[pos] != '[')
+					return ParsedElement.Fail;
+				pos++;
+
+				int stringStart = pos; // Start of the string content
+				int stringEnd = stringStart;
+
+				while (pos < end)
+				{
+					// Find the next potential end of the string
+					while (pos < end && input[pos] != ']')
+					{
+						pos++;
+						stringEnd = pos;
+					}
+
+					if (pos < end)
+					{
+						pos++; // Move after the closing bracket
+
+						int eqsignCount2 = 0;
+						while (pos + eqsignCount2 < end && input[pos + eqsignCount2] == '=')
+							eqsignCount2++;
+						pos += eqsignCount2;
+
+						if (eqsignCount == eqsignCount2 && pos < end && input[pos] == ']')
+						{
+							var value = input.Substring(stringStart, stringEnd - stringStart);
+							return new ParsedElement(start, pos + 1 - start, value);
+						}
+					}
+					else
+						return ParsedElement.Fail;
+				}
+			}
+
+			return ParsedElement.Fail;
+		}
+
 		private static void FillWithDefaultRules(ParserBuilder builder)
 		{
 			builder.CreateRule("skip")
 				.Choice(
 					b => b.Spaces(),
 					b => b.Newline(),
-					b => b.Literal("--[[").TextUntil("]]").Literal("]]"),
+					b => b.Literal("--").Custom(LevelledStringMatchFunction),
 					b => b.Literal("--").TextUntil('\n', '\r')
 				)
 				.ConfigureForSkip();
@@ -104,59 +157,6 @@ namespace AsyncLua.Parsing
 					b => b.Map<double>(b => b.Number<double>(NumberFlags.UnsignedScientific),
 						d => new LuaNumber(d))
 				);
-
-			static ParsedElement LevelledStringMatchFunction(CustomTokenPattern self, string input,
-				int start, int end, object? parameter, bool calculateIntermediateValue,
-				ref ParsingError furthestError, TokenPattern[] children)
-			{
-				int pos = start;
-				if (pos < end && input[start] == '[')
-				{
-					pos++;
-
-					int eqsignCount = 0; // Number of equal signs
-					while (pos + eqsignCount < end && input[pos + eqsignCount] == '=')
-						eqsignCount++;
-					pos += eqsignCount;
-
-					if (pos < end && input[pos] != '[')
-						return ParsedElement.Fail;
-					pos++;
-
-					int stringStart = pos; // Start of the string content
-					int stringEnd = stringStart;
-
-					while (pos < end)
-					{
-						// Find the next potential end of the string
-						while (pos < end && input[pos] != ']')
-						{
-							pos++;
-							stringEnd = pos;
-						}
-
-						if (pos < end)
-						{
-							pos++; // Move after the closing bracket
-
-							int eqsignCount2 = 0;
-							while (pos + eqsignCount2 < end && input[pos + eqsignCount2] == '=')
-								eqsignCount2++;
-							pos += eqsignCount2;
-
-							if (eqsignCount == eqsignCount2 && pos < end && input[pos] == ']')
-							{
-								var value = input.Substring(stringStart, stringEnd - stringStart);
-								return new ParsedElement(start, pos + 1 - start, value);
-							}
-						}
-						else
-							return ParsedElement.Fail;
-					}
-				}
-
-				return ParsedElement.Fail;
-			}
 
 			builder.CreateToken("string")
 				.Map<string>(b => b.Choice(
@@ -283,7 +283,7 @@ namespace AsyncLua.Parsing
 					Position = CodePositionalInfo.From(v)
 				});
 
-			// ── Primary ──────────────────────────────────────────────────
+			// ── Primary and prefix ──────────────────────────────────────
 
 			builder.CreateRule("primary")
 				.Choice(
@@ -299,89 +299,114 @@ namespace AsyncLua.Parsing
 							Position = CodePositionalInfo.From(v)
 						}));
 
+			builder.CreateRule("prefix")
+				.Choice(
+					c => c.Rule("identifier_expr"),
+					c => c.Literal("(").Rule("expression").Literal(")")
+						.Transform(v => new ParenthesizedExpressionNode
+						{
+							Expression = v.GetValue<ExpressionNode>(1),
+							Position = CodePositionalInfo.From(v)
+						}));
+
 			// ── Postfix (calls, indexing, member access) ────────────────
 
+			builder.CreateRule("function_call_args")
+				.Choice(
+					b => b
+						.Literal("(")
+						.ZeroOrMoreSeparated(
+							a => a.Rule("expression"),
+							s => s.Literal(","))
+						.Literal(")")
+						.Transform(v => v.Children[1].SelectValues<ExpressionNode>().ToArray()),
+					b => b
+						.Rule("table_constructor")
+						.ToSequence()
+						.Transform(v => new ExpressionNode[] { v.Children[0].GetValue<ExpressionNode>() }),
+					b => b
+						.Token("string")
+						.Transform(v => new ExpressionNode[] { new LiteralNode { Literal = v.GetIntermediateValue<LuaValue>(), Position = CodePositionalInfo.From(v) } })
+				);
+
 			builder.CreateRule("postfix_expr")
-				.Rule("primary")
-				.ZeroOrMore(b => b.Choice(
-					// method call: obj:method(args)
+				.Choice(
 					b => b
-						.Literal(":")
-						.Token("identifier")
-						.Literal("(")
-						.ZeroOrMoreSeparated(
-							a => a.Rule("expression"),
-							s => s.Literal(","))
-						.Literal(")")
-						.Transform(v => new FunctionCallNode
+						.Rule("prefix")
+						.ZeroOrMore(b => b.Choice(
+							// method call: obj:method(args)
+							b => b
+								.Literal(":")
+								.Token("identifier")
+								.Rule("function_call_args")
+								.Transform(v => new FunctionCallNode
+								{
+									Target = null!, // filled later
+									Method = v.GetIntermediateValue<string>(1),
+									Arguments = v.Children[2].GetValue<ExpressionNode[]>(),
+									Position = CodePositionalInfo.From(v)
+								}),
+							// index: obj[key]
+							b => b
+								.Literal("[")
+								.Rule("expression")
+								.Literal("]")
+								.Transform(v => new IndexNode
+								{
+									Target = null!, // filled later
+									Index = v.GetValue<ExpressionNode>(1),
+									Position = CodePositionalInfo.From(v)
+								}),
+							// member access: obj.key
+							b => b
+								.Literal(".")
+								.Token("identifier")
+								.Transform(v => new IndexNode
+								{
+									Target = null!, // filled later
+									Index = new LiteralNode
+									{
+										Literal = new LuaString(v.GetIntermediateValue<string>(1)),
+										Position = CodePositionalInfo.From(v[1])
+									},
+									Position = CodePositionalInfo.From(v)
+								}),
+							// plain function call: func(args) or func {...} or func "string"
+							b => b
+								.Rule("function_call_args")
+								.ToSequence()
+								.Transform(v => new FunctionCallNode
+								{
+									Target = null!, // filled later
+									Method = null,
+									Arguments = v.Children[0].GetValue<ExpressionNode[]>(),
+									Position = CodePositionalInfo.From(v)
+								})
+						))
+						.Transform(v =>
 						{
-							Target = null!, // filled later
-							Method = v.GetIntermediateValue<string>(1),
-							Arguments = v.Children[3].SelectValues<ExpressionNode>().ToArray(),
-							Position = CodePositionalInfo.From(v)
-						}),
-					// index: obj[key]
-					b => b
-						.Literal("[")
-						.Rule("expression")
-						.Literal("]")
-						.Transform(v => new IndexNode
-						{
-							Target = null!, // filled later
-							Index = v.GetValue<ExpressionNode>(1),
-							Position = CodePositionalInfo.From(v)
-						}),
-					// member access: obj.key
-					b => b
-						.Literal(".")
-						.Token("identifier")
-						.Transform(v => new IndexNode
-						{
-							Target = null!, // filled later
-							Index = new LiteralNode
+							ExpressionNode target = v.GetValue<ExpressionNode>(0);
+
+							foreach (var child in v.Children[1])
 							{
-								Literal = new LuaString(v.GetIntermediateValue<string>(1)),
-								Position = CodePositionalInfo.From(v[1])
-							},
-							Position = CodePositionalInfo.From(v)
+								var opNode = child.GetValue<ExpressionNode>();
+
+								if (opNode is FunctionCallNode call)
+								{
+									call.Target = target;
+									target = call;
+								}
+								else if (opNode is IndexNode index)
+								{
+									index.Target = target;
+									target = index;
+								}
+							}
+
+							return target;
 						}),
-					// function call: obj(args)
-					b => b
-						.Literal("(")
-						.ZeroOrMoreSeparated(
-							a => a.Rule("expression"),
-							s => s.Literal(","))
-						.Literal(")")
-						.Transform(v => new FunctionCallNode
-						{
-							Target = null!, // filled later
-							Method = null,
-							Arguments = v.Children[1].SelectValues<ExpressionNode>().ToArray(),
-							Position = CodePositionalInfo.From(v)
-						})
-				))
-				.Transform(v =>
-				{
-					ExpressionNode target = v.GetValue<ExpressionNode>(0);
-
-					foreach (var child in v.Children[1])
-					{
-						var opNode = child.GetValue<ExpressionNode>();
-
-						if (opNode is FunctionCallNode call)
-						{
-							call.Target = target;
-							target = call;
-						}
-						else if (opNode is IndexNode index)
-						{
-							index.Target = target;
-							target = index;
-						}
-					}
-
-					return target;
-				});
+					b => b.Rule("primary")
+				);
 
 			// ── Unary operators ──────────────────────────────────────────
 

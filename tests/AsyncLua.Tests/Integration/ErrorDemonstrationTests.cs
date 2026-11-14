@@ -137,7 +137,7 @@ public class ErrorDemonstrationTests(ITestOutputHelper output)
 	[Fact]
 	public void CallNonFunction_Number_ShowsVisualPosition()
 	{
-		var code = "return 42()";
+		var code = "return (42)()";
 
 		var ex = Assert.Throws<LuaRuntimeException>(() =>
 		{

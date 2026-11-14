@@ -58,7 +58,7 @@ namespace AsyncLua.Libraries
 			state.SetGlobal("getfenv", new LuaCallbackFunction(GetFenv, "getfenv"));
 
 			// Set _VERSION global constant.
-			var version = typeof(BasicLibrary).Assembly.GetName().Version.ToString();
+			var version = typeof(BasicLibrary).Assembly.GetName().Version!.ToString();
 			state.SetGlobal("_VERSION", new LuaString($"AsyncLua {version}"));
 		}
 
