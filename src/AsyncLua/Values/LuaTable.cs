@@ -78,16 +78,6 @@ namespace AsyncLua.Values
 		}
 
 		/// <summary>
-		/// Initialises a new, empty Lua table with the specified metatable.
-		/// </summary>
-		/// <param name="metatable">The metatable to attach, or <see langword="null"/>.</param>
-		public LuaTable(LuaMetatable? metatable)
-			: this()
-		{
-			Metatable = metatable;
-		}
-
-		/// <summary>
 		/// Initialises a new Lua table with the specified array-part capacity.
 		/// </summary>
 		/// <param name="capacity">The initial capacity for the underlying storage.</param>
@@ -494,7 +484,7 @@ namespace AsyncLua.Values
 		/// Tables use reference equality by default. If a <c>__eq</c> metamethod is required,
 		/// the runtime (LuaState) dispatches it before calling this method.
 		/// </remarks>
-		public override bool Equals(LuaValue other)
+		public override bool Equals(LuaValue? other)
 		{
 			return ReferenceEquals(this, other);
 		}
@@ -643,7 +633,7 @@ namespace AsyncLua.Values
 		/// Thrown when <paramref name="after"/> is not a key of the table (the same error the reference
 		/// implementation raises after a rehash invalidated an in-flight traversal).
 		/// </exception>
-		internal bool TryGetNext(LuaValue after, out LuaValue key, out LuaValue value)
+		public bool TryGetNext(LuaValue after, out LuaValue key, out LuaValue value)
 		{
 			lock (_gate)
 			{

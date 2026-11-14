@@ -18,8 +18,7 @@ namespace AsyncLua.Values
 		/// </summary>
 		public abstract string TypeName { get; }
 
-		private LuaMetatable? _metatable;
-
+		private LuaTable? _metatable;
 		/// <summary>
 		/// Gets or sets the metatable associated with this value.
 		/// </summary>
@@ -34,7 +33,7 @@ namespace AsyncLua.Values
 		/// Setting the metatable to <see langword="null"/> removes it.
 		/// </para>
 		/// </remarks>
-		public virtual LuaMetatable? Metatable
+		public virtual LuaTable? Metatable
 		{
 			get => _metatable;
 			set => _metatable = value;
@@ -53,14 +52,14 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="other">The other Lua value to compare with.</param>
 		/// <returns><see langword="true"/> if the values are equal; otherwise, <see langword="false"/>.</returns>
-		public abstract bool Equals(LuaValue other);
+		public abstract bool Equals(LuaValue? other);
 
 		/// <summary>
 		/// Determines whether this Lua value is equal to the specified object.
 		/// </summary>
 		/// <param name="obj">The object to compare with.</param>
 		/// <returns><see langword="true"/> if <paramref name="obj"/> is a <see cref="LuaValue"/> and equal to this instance.</returns>
-		public override bool Equals(object obj)
+		public override bool Equals(object? obj)
 		{
 			return obj is LuaValue other && Equals(other);
 		}

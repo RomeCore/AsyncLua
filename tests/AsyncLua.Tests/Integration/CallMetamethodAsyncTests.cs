@@ -18,7 +18,7 @@ public class CallMetamethodAsyncTests
 	{
 		var state = new LuaState().LoadDefaultLibraries();
 
-		var metatable = new LuaMetatable();
+		var metatable = new LuaTable();
 		metatable.Set("__call", call);
 		state.Globals.Set("obj", new LuaTable { Metatable = metatable });
 

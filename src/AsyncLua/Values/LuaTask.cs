@@ -409,7 +409,7 @@ namespace AsyncLua.Values
 		}
 
 		/// <inheritdoc />
-		public override bool Equals(LuaValue other) =>
+		public override bool Equals(LuaValue? other) =>
 			ReferenceEquals(this, other);
 
 		/// <inheritdoc />

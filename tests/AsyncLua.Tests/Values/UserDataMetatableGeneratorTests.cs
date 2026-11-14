@@ -103,10 +103,10 @@ public class UserDataMetatableGeneratorTests
 	{
 		var mt = UserDataMetatableGenerator.CreateMetatable(typeof(Player));
 		Assert.NotNull(mt);
-		Assert.True(mt.HasEvent(LuaMetatableEvent.Name));
-		Assert.True(mt.HasEvent(LuaMetatableEvent.ToString));
-		Assert.True(mt.HasEvent(LuaMetatableEvent.Index));
-		Assert.True(mt.HasEvent(LuaMetatableEvent.NewIndex));
+		Assert.True(mt.ContainsKey(LuaMetatableEvent.Name));
+		Assert.True(mt.ContainsKey(LuaMetatableEvent.ToString));
+		Assert.True(mt.ContainsKey(LuaMetatableEvent.Index));
+		Assert.True(mt.ContainsKey(LuaMetatableEvent.NewIndex));
 	}
 
 	[Fact]

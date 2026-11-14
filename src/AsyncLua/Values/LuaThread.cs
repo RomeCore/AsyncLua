@@ -225,7 +225,7 @@ namespace AsyncLua.Values
 		}
 
 		/// <inheritdoc />
-		public override bool Equals(LuaValue other) => ReferenceEquals(this, other);
+		public override bool Equals(LuaValue? other) => ReferenceEquals(this, other);
 
 		/// <inheritdoc />
 		public override int GetHashCode() => RuntimeHelpers.GetHashCode(this);

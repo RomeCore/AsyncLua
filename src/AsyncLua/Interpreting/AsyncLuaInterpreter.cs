@@ -1528,36 +1528,23 @@ namespace AsyncLua.Interpreting
 		/// The metamethod handler, or <see cref="LuaNil.Instance"/> if no suitable handler exists.
 		/// </returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		private static LuaValue GetMetamethod(LuaState state, LuaValue value, LuaMetatableEvent evt, MetatableMode mode)
+		private static LuaValue GetMetamethod(LuaState state, LuaValue value, LuaString evt, MetatableMode mode)
 		{
 			// In Aggressive mode, any type with a metatable can yield a metamethod.
-			if (mode == MetatableMode.Aggressive)
+			// Default (Relaxed) mode: only tables (and userdata) are checked.
+			if (mode == MetatableMode.Aggressive || value.Type == LuaType.Table || value.Type == LuaType.UserData)
 			{
 				// 1. Check the individual metatable (per-object).
 				var mt = value.Metatable;
-				if (mt != null && mt.HasEvent(evt))
-					return mt.Get(evt);
+				if (mt != null && mt.TryGetValue(evt, out var mtVal))
+					return mtVal;
 
 				// 2. Fall back to the type-level metatable (shared for the Lua type).
 				if (state.TypeMetatables.TryGetValue(value.Type, out var typeMt)
-					&& typeMt.HasEvent(evt))
-					return typeMt.Get(evt);
+					&& typeMt.TryGetValue(evt, out var typeMtVal))
+					return typeMtVal;
 
 				return LuaNil.Instance;
-			}
-
-			// Default (Relaxed) mode: only tables (and userdata) are checked.
-			if (value.Type == LuaType.Table || value.Type == LuaType.UserData)
-			{
-				// 1. Individual metatable first.
-				var mt = value.Metatable;
-				if (mt != null && mt.HasEvent(evt))
-					return mt.Get(evt);
-
-				// 2. Type metatable as fallback.
-				if (state.TypeMetatables.TryGetValue(value.Type, out var typeMt)
-					&& typeMt.HasEvent(evt))
-					return typeMt.Get(evt);
 			}
 
 			return LuaNil.Instance;
@@ -1567,7 +1554,7 @@ namespace AsyncLua.Interpreting
 		/// Attempts to invoke a binary metamethod synchronously.
 		/// </summary>
 		private static LuaValue? TryBinaryMetamethod(
-			LuaValue lhs, LuaValue rhs, LuaMetatableEvent evt, MetatableMode mode,
+			LuaValue lhs, LuaValue rhs, LuaString evt, MetatableMode mode,
 			LuaCallingContext context)
 		{
 			// Try left operand first.
@@ -1625,7 +1612,7 @@ namespace AsyncLua.Interpreting
 		/// Attempts to invoke a binary metamethod (e.g., <c>__add</c>, <c>__sub</c>) asynchronously.
 		/// </summary>
 		private static Task<LuaValue?> TryBinaryMetamethodAsync(
-			LuaValue lhs, LuaValue rhs, LuaMetatableEvent evt, MetatableMode mode,
+			LuaValue lhs, LuaValue rhs, LuaString evt, MetatableMode mode,
 			LuaCallingContext context)
 		{
 			// Fast path: just call the sync version and wrap in Task.
@@ -1636,7 +1623,7 @@ namespace AsyncLua.Interpreting
 		/// Attempts to invoke a unary metamethod synchronously.
 		/// </summary>
 		private static LuaValue? TryUnaryMetamethod(
-			LuaValue operand, LuaMetatableEvent evt, MetatableMode mode,
+			LuaValue operand, LuaString evt, MetatableMode mode,
 			LuaCallingContext context)
 		{
 			var mm = GetMetamethod(context.State, operand, evt, mode);
@@ -1663,7 +1650,7 @@ namespace AsyncLua.Interpreting
 		/// Attempts to invoke a unary metamethod asynchronously.
 		/// </summary>
 		private static Task<LuaValue?> TryUnaryMetamethodAsync(
-			LuaValue operand, LuaMetatableEvent evt, MetatableMode mode,
+			LuaValue operand, LuaString evt, MetatableMode mode,
 			LuaCallingContext context)
 		{
 			return Task.FromResult(TryUnaryMetamethod(operand, evt, mode, context));
@@ -1673,7 +1660,7 @@ namespace AsyncLua.Interpreting
 		/// Attempts to invoke a comparison metamethod synchronously.
 		/// </summary>
 		private static bool? TryComparisonMetamethod(
-			LuaValue lhs, LuaValue rhs, LuaMetatableEvent evt, MetatableMode mode,
+			LuaValue lhs, LuaValue rhs, LuaString evt, MetatableMode mode,
 			LuaCallingContext context)
 		{
 			// Helper to safely invoke a comparison metamethod, stripping metatables
@@ -1725,7 +1712,7 @@ namespace AsyncLua.Interpreting
 		/// Attempts to invoke a comparison metamethod asynchronously.
 		/// </summary>
 		private static Task<bool?> TryComparisonMetamethodAsync(
-			LuaValue lhs, LuaValue rhs, LuaMetatableEvent evt, MetatableMode mode,
+			LuaValue lhs, LuaValue rhs, LuaString evt, MetatableMode mode,
 			LuaCallingContext context)
 		{
 			return Task.FromResult(TryComparisonMetamethod(lhs, rhs, evt, mode, context));

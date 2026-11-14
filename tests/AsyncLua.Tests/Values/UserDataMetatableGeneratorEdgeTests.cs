@@ -447,8 +447,8 @@ public class UserDataMetatableGeneratorEdgeTests
 
 		var ud = Assert.IsType<LuaUserData>(lv);
 		Assert.NotNull(ud.Metatable);
-		Assert.True(ud.Metatable.HasEvent(LuaMetatableEvent.Index));
-		Assert.True(ud.Metatable.HasEvent(LuaMetatableEvent.Name));
+		Assert.True(ud.Metatable.ContainsKey(LuaMetatableEvent.Index));
+		Assert.True(ud.Metatable.ContainsKey(LuaMetatableEvent.Name));
 	}
 
 	[Fact]
@@ -505,6 +505,6 @@ public class UserDataMetatableGeneratorEdgeTests
 		// We can verify via type-metatable from C# side:
 		var ud = Assert.IsType<LuaUserData>(LuaValueConverter.ToLuaValue(new BaseClass()));
 		Assert.NotNull(ud.Metatable);
-		Assert.True(ud.Metatable.HasEvent(LuaMetatableEvent.Name));
+		Assert.True(ud.Metatable.ContainsKey(LuaMetatableEvent.Name));
 	}
 }

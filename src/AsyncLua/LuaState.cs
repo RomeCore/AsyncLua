@@ -53,7 +53,7 @@ namespace AsyncLua
 		/// <summary>
 		/// Gets a dictionary mapping Lua types to their corresponding default metatables.
 		/// </summary>
-		public ConcurrentDictionary<LuaType, LuaMetatable> TypeMetatables { get; } = [];
+		public ConcurrentDictionary<LuaType, LuaTable> TypeMetatables { get; } = [];
 
 		/// <summary>
 		/// Gets or sets the default print function for all Lua states.

@@ -71,7 +71,7 @@ namespace AsyncLua.Values
 		/// <see langword="true"/> if <paramref name="other"/> is a <see cref="LuaUserData"/>
 		/// wrapping the exact same .NET object instance; otherwise, <see langword="false"/>.
 		/// </returns>
-		public override bool Equals(LuaValue other)
+		public override bool Equals(LuaValue? other)
 		{
 			return other is LuaUserData ud && ReferenceEquals(Target, ud.Target);
 		}

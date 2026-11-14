@@ -36,7 +36,7 @@ namespace AsyncLua.Values
 	/// </remarks>
 	public static class UserDataMetatableGenerator
 	{
-		private static readonly ConcurrentDictionary<Type, LuaMetatable> _cache = new();
+		private static readonly ConcurrentDictionary<Type, LuaTable> _cache = new();
 
 		// ── Public API ────────────────────────────────────────────────────
 
@@ -45,7 +45,7 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="type">The CLR type to generate a metatable for.</param>
 		/// <returns>A <see cref="LuaMetatable"/> that exposes the type's public members.</returns>
-		public static LuaMetatable GetOrCreate(Type type) =>
+		public static LuaTable GetOrCreate(Type type) =>
 			_cache.GetOrAdd(type, CreateMetatable);
 
 		/// <summary>
@@ -53,7 +53,7 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="userData">The userdata whose CLR type is used for lookup.</param>
 		/// <returns>A <see cref="LuaMetatable"/> that exposes the type's public members.</returns>
-		public static LuaMetatable GetOrCreate(LuaUserData userData) =>
+		public static LuaTable GetOrCreate(LuaUserData userData) =>
 			GetOrCreate(userData.Target.GetType());
 
 		/// <summary>
@@ -61,9 +61,9 @@ namespace AsyncLua.Values
 		/// </summary>
 		/// <param name="type">The CLR type to generate a metatable for.</param>
 		/// <returns>A <see cref="LuaMetatable"/> that exposes the type's public members.</returns>
-		public static LuaMetatable CreateMetatable(Type type)
+		public static LuaTable CreateMetatable(Type type)
 		{
-			var mt = new LuaMetatable();
+			var mt = new LuaTable();
 
 			mt.Set(LuaMetatableEvent.Name, new LuaString(type.FullName ?? type.Name));
 			mt.Set(LuaMetatableEvent.ToString, CreateToStringFunction(type));
@@ -558,7 +558,7 @@ namespace AsyncLua.Values
 
 				bool add = args.Length < 3 || args[2].ToBoolean();
 				var eventType = evt.EventHandlerType;
-				Delegate d = CreateLuaDelegate(eventType, ctx, handler);
+				Delegate d = CreateLuaDelegate(eventType!, ctx, handler);
 
 				try
 				{

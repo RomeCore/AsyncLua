@@ -27,7 +27,7 @@ public class MetatableInterpreterTests
 				if (args.Length < 2 || args[1] is LuaNil)
 					target.Metatable = null;
 				else if (args[1] is LuaTable mtTable)
-					target.Metatable = LuaMetatable.FromTable(mtTable);
+					target.Metatable = mtTable;
 				return new LuaTuple(target);
 			}, "setmetatable"));
 
@@ -40,14 +40,7 @@ public class MetatableInterpreterTests
 				var mt = args[0].Metatable;
 				if (mt == null)
 					return new LuaTuple(LuaNil.Instance);
-				// Convert LuaMetatable back to a LuaTable for the caller.
-				var table = new LuaTable();
-				foreach (var kvp in mt)
-				{
-					var name = LuaMetatable.GetEventName(kvp.Key);
-					table.Set(new LuaString(name), kvp.Value);
-				}
-				return new LuaTuple(table);
+				return new LuaTuple(mt);
 			}, "getmetatable"));
 
 		// type(value) → string
@@ -93,7 +86,7 @@ public class MetatableInterpreterTests
 			{
 				if (args.Length < 1 || args[0] is not LuaTable target)
 					return new LuaTuple(LuaNil.Instance);
-				var mt = new LuaMetatable();
+				var mt = new LuaTable();
 				mt.Set(LuaMetatableEvent.Len, new LuaCallbackFunction(
 					(ctx2, args2) => new LuaTuple(new LuaNumber(42)), "cb_len"));
 				target.Metatable = mt;
@@ -425,7 +418,7 @@ public class MetatableInterpreterTests
 			{
 				if (args.Length < 1 || args[0] is not LuaTable target)
 					return new LuaTuple(LuaNil.Instance);
-				var mt = new LuaMetatable();
+				var mt = new LuaTable();
 				mt.Set(LuaMetatableEvent.Add, new LuaCallbackFunction(
 					(ctx2, args2) =>
 					{
@@ -682,7 +675,7 @@ public class MetatableInterpreterTests
 				if (args.Length == 0) return new LuaTuple(new LuaString("nil"));
 				var v = args[0];
 				var mm = v.Metatable;
-				if (mm != null && mm.HasEvent(LuaMetatableEvent.ToString))
+				if (mm != null && mm.ContainsKey(LuaMetatableEvent.ToString))
 				{
 					var handler = mm.Get(LuaMetatableEvent.ToString);
 					if (handler is LuaFunction func)
@@ -718,12 +711,9 @@ public class MetatableInterpreterTests
 				var mt = v.Metatable;
 				if (mt == null) return new LuaTuple(LuaNil.Instance);
 				// __metatable protection.
-				if (mt.HasEvent(LuaMetatableEvent.MetaTable))
+				if (mt.ContainsKey(LuaMetatableEvent.MetaTable))
 					return new LuaTuple(mt.Get(LuaMetatableEvent.MetaTable));
-				var table = new LuaTable();
-				foreach (var kvp in mt)
-					table.Set(new LuaString(LuaMetatable.GetEventName(kvp.Key)), kvp.Value);
-				return new LuaTuple(table);
+				return new LuaTuple(mt);
 			}, "getmetatable"));
 
 		var context = state.CreateContext();

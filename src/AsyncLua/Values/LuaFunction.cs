@@ -51,7 +51,7 @@ namespace AsyncLua.Values
 		public override string ToString() => $"function: {RuntimeHelpers.GetHashCode(this):X}";
 
 		/// <inheritdoc />
-		public override bool Equals(LuaValue other) => ReferenceEquals(this, other);
+		public override bool Equals(LuaValue? other) => ReferenceEquals(this, other);
 
 		/// <inheritdoc />
 		public override int GetHashCode() => RuntimeHelpers.GetHashCode(this);

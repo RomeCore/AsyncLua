@@ -52,19 +52,19 @@ namespace AsyncLua.Values
 		public override string ToString() => Value;
 
 		/// <inheritdoc />
-		public override bool Equals(LuaValue other)
+		public override bool Equals(LuaValue? other)
 		{
 			return other is LuaString s && Value == s.Value;
 		}
 
 		/// <inheritdoc />
-		public bool Equals(LuaString other)
+		public bool Equals(LuaString? other)
 		{
 			return other is not null && Value == other.Value;
 		}
 
 		/// <inheritdoc />
-		public override bool Equals(object obj)
+		public override bool Equals(object? obj)
 		{
 			return obj is LuaString s && Value == s.Value;
 		}
@@ -121,7 +121,7 @@ namespace AsyncLua.Values
 		}
 
 		/// <inheritdoc />
-		public int CompareTo(LuaString other)
+		public int CompareTo(LuaString? other)
 		{
 			if (other is null)
 				return 1;

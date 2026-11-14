@@ -226,7 +226,7 @@ public class AdvancedIntegrationTests
 				if (args.Length < 2 || args[1] is LuaNil)
 					target.Metatable = null;
 				else if (args[1] is LuaTable mtTable)
-					target.Metatable = LuaMetatable.FromTable(mtTable);
+					target.Metatable = mtTable;
 				return new LuaTuple(target);
 			}, "setmetatable"));
 
@@ -236,10 +236,7 @@ public class AdvancedIntegrationTests
 				if (args.Length == 0) return new LuaTuple(LuaNil.Instance);
 				var mt = args[0].Metatable;
 				if (mt == null) return new LuaTuple(LuaNil.Instance);
-				var table = new LuaTable();
-				foreach (var kvp in mt)
-					table.Set(new LuaString(LuaMetatable.GetEventName(kvp.Key)), kvp.Value);
-				return new LuaTuple(table);
+				return new LuaTuple(mt);
 			}, "getmetatable"));
 
 		state.SetGlobal("rawget", new LuaCallbackFunction(

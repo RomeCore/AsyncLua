@@ -114,18 +114,16 @@ namespace AsyncLua.Libraries
 
 			// Check for __tostring metamethod.
 			var mt = value.Metatable;
-			if (mt != null && mt.HasEvent(LuaMetatableEvent.ToString))
+			if (mt != null && mt.TryGetValue(LuaMetatableEvent.ToString, out var handler1))
 			{
-				var handler = mt.Get(LuaMetatableEvent.ToString);
-				if (handler is LuaFunction func)
+				if (handler1 is LuaFunction func)
 					return await func.InvokeAsync(ctx, new[] { value });
 			}
 
 			if (ctx.State.TypeMetatables.TryGetValue(value.Type, out var typeMtToString)
-				&& typeMtToString.HasEvent(LuaMetatableEvent.ToString))
+				&& typeMtToString.TryGetValue(LuaMetatableEvent.ToString, out var handler2))
 			{
-				var handler = typeMtToString.Get(LuaMetatableEvent.ToString);
-				if (handler is LuaFunction func)
+				if (handler2 is LuaFunction func)
 					return await func.InvokeAsync(ctx, new[] { value });
 			}
 
@@ -150,19 +148,17 @@ namespace AsyncLua.Libraries
 
 			// Check for __tonumber metamethod (individual metatable first).
 			var mt = value.Metatable;
-			if (mt != null && mt.HasEvent(LuaMetatableEvent.ToNumber))
+			if (mt != null && mt.TryGetValue(LuaMetatableEvent.ToNumber, out var handler1))
 			{
-				var handler = mt.Get(LuaMetatableEvent.ToNumber);
-				if (handler is LuaFunction func)
+				if (handler1 is LuaFunction func)
 					return await func.InvokeAsync(ctx, new[] { value });
 			}
 
 			// Then type metatable.
 			if (ctx.State.TypeMetatables.TryGetValue(value.Type, out var typeMtToNumber)
-				&& typeMtToNumber.HasEvent(LuaMetatableEvent.ToNumber))
+				&& typeMtToNumber.TryGetValue(LuaMetatableEvent.ToNumber, out var handler2))
 			{
-				var handler = typeMtToNumber.Get(LuaMetatableEvent.ToNumber);
-				if (handler is LuaFunction func)
+				if (handler2 is LuaFunction func)
 					return await func.InvokeAsync(ctx, new[] { value });
 			}
 
@@ -399,7 +395,7 @@ namespace AsyncLua.Libraries
 
 			// Check for __pairs metamethod (Lua 5.2+ semantics).
 			var mt = target.Metatable;
-			if (mt != null && mt.HasEvent(LuaMetatableEvent.Pairs))
+			if (mt != null && mt.ContainsKey(LuaMetatableEvent.Pairs))
 			{
 				var handler = mt.Get(LuaMetatableEvent.Pairs);
 				if (handler is LuaFunction func)
@@ -408,7 +404,7 @@ namespace AsyncLua.Libraries
 
 			// Type metatables (per-type shared metatables).
 			if (mt == null && ctx.State.TypeMetatables.TryGetValue(target.Type, out var typeMt)
-				&& typeMt.HasEvent(LuaMetatableEvent.Pairs))
+				&& typeMt.ContainsKey(LuaMetatableEvent.Pairs))
 			{
 				var handler = typeMt.Get(LuaMetatableEvent.Pairs);
 				if (handler is LuaFunction func)
@@ -473,13 +469,13 @@ namespace AsyncLua.Libraries
 				return new LuaTuple(LuaNil.Instance);
 
 			// Check for __metatable field.
-			if (mt.HasEvent(LuaMetatableEvent.MetaTable))
+			if (mt.ContainsKey(LuaMetatableEvent.MetaTable))
 			{
 				var protectedMt = mt.Get(LuaMetatableEvent.MetaTable);
 				return new LuaTuple(protectedMt);
 			}
 
-			return new LuaTuple(mt.ToTable());
+			return new LuaTuple(mt);
 		}
 
 		private static LuaTuple SetMetatable(LuaCallingContext ctx, LuaValue[] args)
@@ -487,7 +483,7 @@ namespace AsyncLua.Libraries
 			// A metatable carrying __metatable is locked against replacement, whatever the
 			// value is - checking this first keeps the diagnostic about the lock rather than
 			// about the type of a userdata whose metatable the host owns.
-			if (args.Length >= 1 && args[0].Metatable is { } current && current.HasEvent(LuaMetatableEvent.MetaTable))
+			if (args.Length >= 1 && args[0].Metatable is { } current && current.ContainsKey(LuaMetatableEvent.MetaTable))
 				throw new LuaRuntimeException("cannot change a protected metatable");
 
 			// Lua only lets a table carry an individual metatable, so a fresh table is the
@@ -509,7 +505,7 @@ namespace AsyncLua.Libraries
 			if (args[1] is not LuaTable mtTable)
 				throw new LuaRuntimeException("bad argument #2 to 'setmetatable' (nil or table expected, got " + args[1].TypeName + ")");
 
-			obj.Metatable = LuaMetatable.FromTable(mtTable);
+			obj.Metatable = mtTable;
 			return new LuaTuple(obj);
 		}
 

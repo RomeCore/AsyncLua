@@ -377,7 +377,7 @@ namespace AsyncLua.Libraries
 
 					bool strip = args.Length > 1 && args[1].ToBoolean();
 
-var data = PrototypeSerializer.Serialize(func.Prototype, strip);
+					var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 					// Use Latin-1 to preserve all bytes 0-255 unchanged.
 					return new LuaTuple(new LuaString(
 						System.Text.Encoding.GetEncoding("ISO-8859-1").GetString(data)));
@@ -386,7 +386,7 @@ var data = PrototypeSerializer.Serialize(func.Prototype, strip);
 
 			// ── String metatable ──────────────────────────────────────
 
-			state.TypeMetatables[LuaType.String] = new LuaMetatable
+			state.TypeMetatables[LuaType.String] = new LuaTable
 			{
 				[LuaMetatableEvent.Index] = table
 			};

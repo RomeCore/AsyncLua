@@ -27,7 +27,7 @@ namespace AsyncLua.Values
 		/// </summary>
 		public bool Value { get; }
 
-		public override LuaMetatable? Metatable { get => null; set => throw new LuaRuntimeException("Cannot change the metatable of boolean."); }
+		public override LuaTable? Metatable { get => null; set => throw new LuaRuntimeException("Cannot change the metatable of boolean."); }
 
 		private LuaBoolean(bool value)
 		{
@@ -58,19 +58,19 @@ namespace AsyncLua.Values
 		public override string ToString() => Value ? "true" : "false";
 
 		/// <inheritdoc />
-		public override bool Equals(LuaValue other)
+		public override bool Equals(LuaValue? other)
 		{
 			return other is LuaBoolean b && b.Value == Value;
 		}
 
 		/// <inheritdoc />
-		public bool Equals(LuaBoolean other)
+		public bool Equals(LuaBoolean? other)
 		{
 			return other is not null && other.Value == Value;
 		}
 
 		/// <inheritdoc />
-		public override bool Equals(object obj)
+		public override bool Equals(object? obj)
 		{
 			return obj is LuaBoolean b && b.Value == Value;
 		}

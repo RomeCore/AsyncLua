@@ -136,7 +136,7 @@ namespace AsyncLua.Libraries
 		/// Creates the metatable attached to tasks produced by <c>task.create()</c>, exposing
 		/// the completion methods <c>:set_result(...)</c> and <c>:set_error(message)</c>.
 		/// </summary>
-		private static LuaMetatable CreateCompletionMetatable()
+		private static LuaTable CreateCompletionMetatable()
 		{
 			var methods = new LuaTable();
 
@@ -163,7 +163,7 @@ namespace AsyncLua.Libraries
 					return LuaTuple.Empty;
 				}, "task.set_error"));
 
-			var metatable = new LuaMetatable();
+			var metatable = new LuaTable();
 			metatable.Set(LuaMetatableEvent.Index, methods);
 			return metatable;
 		}

@@ -177,13 +177,13 @@ namespace AsyncLua.Values
 		// ── Equality ─────────────────────────────────────────────────────
 
 		/// <inheritdoc />
-		public override bool Equals(LuaValue other)
+		public override bool Equals(LuaValue? other)
 		{
 			return other is LuaTuple t && Equals(t);
 		}
 
 		/// <inheritdoc />
-		public bool Equals(LuaTuple other)
+		public bool Equals(LuaTuple? other)
 		{
 			if (other is null)
 				return false;
@@ -201,7 +201,7 @@ namespace AsyncLua.Values
 		}
 
 		/// <inheritdoc />
-		public override bool Equals(object obj)
+		public override bool Equals(object? obj)
 		{
 			return obj is LuaTuple t && Equals(t);
 		}
