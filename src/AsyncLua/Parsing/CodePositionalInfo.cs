@@ -1,4 +1,3 @@
-using System;
 using System.Text;
 using RCParsing;
 
@@ -39,73 +38,35 @@ namespace AsyncLua.Parsing
 
 			var sb = new StringBuilder();
 
+			string fullSubstring = SourceCode.Substring(StartIndex, Length);
+			if (fullSubstring.Length > 30)
+				fullSubstring = fullSubstring.Substring(0, 12) + "..." + fullSubstring.Substring(fullSubstring.Length - 12);
+			fullSubstring = fullSubstring.Replace("\n", "\\n").Replace("\r", "\\r");
+			sb.AppendLine($"Location (at '{fullSubstring}'):");
+
 			if (Length is 0 or 1)
 			{
-				PositionalFormatter.Decompose(SourceCode, StartIndex,
-					out int lineStart, out int lineLength, out int lineNumber, out int columnNumber, out int visualColumnNumber,
-					TabSize);
-
-				string fullSubstring = SourceCode.Substring(StartIndex, Length);
-				sb.AppendLine($"Location (at '{fullSubstring}'):");
-
-				string lineAndColumn = $"line {lineNumber}, column {columnNumber}";
-				string pointerLine;
-				if (visualColumnNumber <= lineAndColumn.Length + 2)
-					pointerLine = new string(' ', visualColumnNumber - 1) + '^' + ' ' + lineAndColumn;
-				else
-					pointerLine = new string(' ', visualColumnNumber - 2 - lineAndColumn.Length) + lineAndColumn + ' ' + '^';
-
-				sb.AppendLine(SourceCode.Substring(lineStart, lineLength));
-				sb.AppendLine(pointerLine);
+				var info = PositionalFormatter.Decompose(SourceCode, StartIndex, TabSize);
+				string annotation = $"line {info.LineNumber}, column {info.ColumnNumber}";
+				sb.AppendLine(PositionalFormatter.Format(SourceCode, info, cursor: "^", cursorAnnotation: annotation));
 			}
 			else
 			{
-				PositionalFormatter.Decompose(SourceCode, StartIndex,
-					out int lineStart1, out int lineLength1, out int lineNumber1, out int columnNumber1, out int visualColumnNumber1,
-					TabSize);
+				var startInfo = PositionalFormatter.Decompose(SourceCode, StartIndex, TabSize);
+				var endInfo = PositionalFormatter.Decompose(SourceCode, EndIndex - 1, TabSize);
 
-				PositionalFormatter.Decompose(SourceCode, EndIndex - 1,
-					out int lineStart2, out int lineLength2, out int lineNumber2, out int columnNumber2, out int visualColumnNumber2,
-					TabSize);
-
-				if (lineNumber1 == lineNumber2)
+				if (startInfo.LineNumber == endInfo.LineNumber)
 				{
-					string fullSubstring = SourceCode.Substring(StartIndex, Length);
-					if (fullSubstring.Length > 30)
-						fullSubstring = fullSubstring.Substring(0, 12) + "..." + fullSubstring.Substring(fullSubstring.Length - 12);
-					fullSubstring = fullSubstring.Replace("\n", "\\n").Replace("\r", "\\r");
-					sb.AppendLine($"Location (at '{fullSubstring}'):");
-
 					// At the same line
-					string lineAndColumn = $"line {lineNumber1}, column {columnNumber1}, length {Length}";
-					string pointerLine;
-					if (visualColumnNumber1 <= lineAndColumn.Length + 2)
-						pointerLine = new string(' ', visualColumnNumber1 - 1) + new string('^', Length) + ' ' + lineAndColumn;
-					else
-						pointerLine = new string(' ', visualColumnNumber1 - 2 - lineAndColumn.Length) + lineAndColumn + ' ' + new string('^', Length);
-
-					sb.AppendLine(SourceCode.Substring(lineStart1, lineLength1));
-					sb.AppendLine(pointerLine);
+					string annotation = $"line {startInfo.LineNumber}, column {startInfo.ColumnNumber}, length {Length}";
+					sb.AppendLine(PositionalFormatter.Format(SourceCode, startInfo, endInfo, cursor: "^", cursorAnnotation: annotation));
 				}
 				else
 				{
-					sb.AppendLine($"Location (from line {lineNumber1}, column {columnNumber1} to line {lineNumber2}, column {columnNumber2}; length {Length} characters):");
-
-					int maxLineNumberLength = Math.Max(lineNumber1.ToString().Length, lineNumber2.ToString().Length);
-
 					// At different lines
-					sb.Append(lineNumber1.ToString().PadLeft(maxLineNumberLength) + ": ");
-					sb.AppendLine(SourceCode.Substring(lineStart1, lineLength1));
-					sb.Append(new string(' ', maxLineNumberLength + 2)); // + 2 from ": "
-					sb.AppendLine(new string('^', lineLength1 - visualColumnNumber1 + 1).PadLeft(lineLength1));
-
-					if (lineNumber1 + 1 != lineNumber2)
-						sb.AppendLine("...");
-
-					sb.Append(lineNumber2.ToString().PadLeft(maxLineNumberLength) + ": ");
-					sb.AppendLine(SourceCode.Substring(lineStart2, lineLength2));
-					sb.Append(new string(' ', maxLineNumberLength + 2));
-					sb.AppendLine(new string('^', visualColumnNumber2));
+					sb.AppendLine($"  (from line {startInfo.LineNumber}, column {startInfo.ColumnNumber} " +
+						$"to line {endInfo.LineNumber}, column {endInfo.ColumnNumber}; length {Length} characters):");
+					sb.AppendLine(PositionalFormatter.Format(SourceCode, startInfo, endInfo, addMultilineNumber: true, cursor: "^"));
 				}
 			}
 
