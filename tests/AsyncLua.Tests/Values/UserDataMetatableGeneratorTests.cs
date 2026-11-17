@@ -32,6 +32,15 @@ public class UserDataMetatableGeneratorTests
 		public string ParamsSum(params int[] numbers) =>
 			$"sum={numbers.Sum()}";
 
+		public LuaTable Native(LuaValue any, LuaString? str = null) => new LuaTable
+		{
+			["any"] = any,
+			["str"] = (LuaValue?)str ?? LuaBoolean.True
+		};
+
+		public LuaValue NativeParams(int height, params LuaValue[] values) =>
+			new LuaString($"height={height}, values={string.Join(", ", values)}");
+
 		public override string ToString() => $"Player:{Name}({Level})";
 	}
 
@@ -284,6 +293,34 @@ public class UserDataMetatableGeneratorTests
 
 		var result = state.Execute("return p:Add(3, 4)");
 		Assert.Equal(7.0, Assert.IsType<LuaNumber>(result.First).Value);
+	}
+
+	[Fact]
+	public void MethodCall_NativeValues()
+	{
+		var state = CreateState();
+		var player = new Player();
+		UserDataMetatableGenerator.RegisterObject(state, "p", player);
+
+		var result1 = Assert.IsType<LuaTable>(state.Execute("return p:Native(3)").First);
+		var result2 = Assert.IsType<LuaTable>(state.Execute("return p:Native({ a = 'abc' }, 'def')").First);
+		Assert.Equal(3.0, Assert.IsType<LuaNumber>(result1["any"]).Value);
+		Assert.Equal(true, Assert.IsType<LuaBoolean>(result1["str"]));
+		Assert.Equal("abc", Assert.IsType<LuaString>((result2["any"] as LuaTable)?["a"]));
+		Assert.Equal("def", Assert.IsType<LuaString>(result2["str"]));
+	}
+
+	[Fact]
+	public void MethodCall_NativeValues_WithParams()
+	{
+		var state = CreateState();
+		var player = new Player();
+		UserDataMetatableGenerator.RegisterObject(state, "p", player);
+
+		var result1 = Assert.IsType<LuaString>(state.Execute("return p:NativeParams(3)").First);
+		var result2 = Assert.IsType<LuaString>(state.Execute("return p:NativeParams(1, 'def', 2, true)").First);
+		Assert.Equal("height=3, values=", result1.Value);
+		Assert.Equal("height=1, values=def, 2, true", result2.Value);
 	}
 
 	// ── Params method ────────────────────────────────────────────────────

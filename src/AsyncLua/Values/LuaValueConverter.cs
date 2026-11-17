@@ -105,6 +105,12 @@ namespace AsyncLua.Values
 		/// </summary>
 		public static object? ToClrObject(this LuaValue value, Type targetType)
 		{
+			var luaValueType = value.GetType();
+
+			// Check if the LuaValue is already of the target type.
+			if (targetType != typeof(object) && (luaValueType == targetType || targetType.IsAssignableFrom(luaValueType)))
+				return value;
+
 			if (value is LuaNil)
 				return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
 
