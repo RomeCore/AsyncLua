@@ -51,7 +51,7 @@ namespace AsyncLua.Values
 			if (value is string str)
 				return new LuaString(str);
 			if (value is Enum)
-				return new LuaString(value.ToString());
+				return new LuaString(value.ToString() ?? string.Empty);
 
 			if (value is LuaTuple tuple)
 				return tuple;

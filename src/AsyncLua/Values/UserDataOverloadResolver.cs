@@ -22,6 +22,24 @@ namespace AsyncLua.Values
 			typeof(CancellationToken)
 		};
 
+		private static readonly HashSet<Type> NumberTypes = new()
+		{
+			typeof(short), typeof(ushort), typeof(int), typeof(uint),
+			typeof(long), typeof(ulong), typeof(byte), typeof(sbyte),
+			typeof(float), typeof(double), typeof(decimal)
+		};
+
+		private static readonly HashSet<Type> IntegerNumberTypes = new()
+		{
+			typeof(short), typeof(ushort), typeof(int), typeof(uint),
+			typeof(long), typeof(ulong), typeof(byte), typeof(sbyte)
+		};
+
+		private static readonly HashSet<Type> PointNumberTypes = new()
+		{
+			typeof(float), typeof(double), typeof(decimal)
+		};
+
 		/// <summary>
 		/// Determines whether the specified CLR type is a hidden parameter type
 		/// that is injected automatically from <see cref="LuaCallingContext"/>.
@@ -158,10 +176,9 @@ namespace AsyncLua.Values
 
 			if (value is LuaNumber)
 			{
-				if (targetType == typeof(double) || targetType == typeof(float) || targetType == typeof(object)) { cost = 1; return true; }
-				if (targetType == typeof(int) || targetType == typeof(long) || targetType == typeof(short)) { cost = 2; return true; }
-				if (targetType == typeof(decimal)) { cost = 3; return true; }
-				if (targetType == typeof(string)) { cost = 5; return true; }
+				if (PointNumberTypes.Contains(targetType)) { cost = 1; return true; }
+				if (IntegerNumberTypes.Contains(targetType)) { cost = 2; return true; }
+				if (targetType == typeof(string) || targetType == typeof(char)) { cost = 5; return true; }
 				if (targetType.IsEnum) { cost = 3; return true; }
 				return false;
 			}
@@ -171,7 +188,7 @@ namespace AsyncLua.Values
 				if (targetType == typeof(string) || targetType == typeof(object)) { cost = 1; return true; }
 				if (targetType.IsEnum) { cost = 3; return true; }
 				if (targetType == typeof(char)) { cost = 2; return true; }
-				if (targetType == typeof(double) || targetType == typeof(int) || targetType == typeof(long)) { cost = 5; return true; }
+				if (NumberTypes.Contains(targetType)) { cost = 5; return true; }
 				return false;
 			}
 
