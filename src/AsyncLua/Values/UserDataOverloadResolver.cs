@@ -161,6 +161,10 @@ namespace AsyncLua.Values
 				return true;
 			}
 
+			var valueType = value.GetType();
+			if (targetType == valueType) { cost = 1; return true; }
+			if (targetType != typeof(object) && targetType.IsAssignableFrom(valueType)) { cost = 2; return true; }
+
 			if (value is LuaNil)
 			{
 				cost = !targetType.IsValueType || Nullable.GetUnderlyingType(targetType) != null ? 1 : 100;
