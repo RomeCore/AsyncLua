@@ -67,6 +67,13 @@ namespace AsyncLua
 		public Action<string>? Print { get; set; }
 
 		/// <summary>
+		/// Gets or sets the ambient context for this Lua state.
+		/// This property can be used to store any data that should be accessible
+		/// from C# callbacks.
+		/// </summary>
+		public object? AmbientContext { get; set; }
+
+		/// <summary>
 		/// Initialises a new instance of the <see cref="LuaState"/> class
 		/// with an empty global table.
 		/// </summary>
@@ -232,6 +239,7 @@ namespace AsyncLua
 			{
 				Print = Print ?? DefaultPrint,
 				CancellationToken = cancellationToken,
+				Ambient = AmbientContext,
 			};
 			return context;
 		}

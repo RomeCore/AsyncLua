@@ -53,6 +53,11 @@ namespace AsyncLua
 		public CancellationToken CancellationToken { get; set; }
 
 		/// <summary>
+		/// Gets or sets an ambient, custom object that can be used to pass additional data to C# callbacks.
+		/// </summary>
+		public object? Ambient { get; set; }
+
+		/// <summary>
 		/// Initialises a new instance of the <see cref="LuaCallingContext"/> class.
 		/// </summary>
 		/// <param name="state">The owning Lua state.</param>
@@ -63,7 +68,7 @@ namespace AsyncLua
 		/// <param name="settings">
 		/// Interpreter settings to use. If <see langword="null"/>, a default instance is created.
 		/// </param>
-		internal LuaCallingContext(
+		public LuaCallingContext(
 			LuaState state,
 			LuaTable? globals = null,
 			InterpreterSettings? settings = null)
@@ -82,7 +87,8 @@ namespace AsyncLua
 			{
 				Print = Print,
 				Warn = Warn,
-				CancellationToken = CancellationToken
+				CancellationToken = CancellationToken,
+				Ambient = Ambient,
 			};
 		}
 
@@ -113,6 +119,16 @@ namespace AsyncLua
 		{
 			var clone = Clone();
 			clone.CancellationToken = CancellationTokenSource.CreateLinkedTokenSource(token, CancellationToken).Token;
+			return clone;
+		}
+
+		/// <summary>
+		/// Creates a shallow copy of this context with a new ambient object.
+		/// </summary>
+		public LuaCallingContext WithAmbient(object? ambient)
+		{
+			var clone = Clone();
+			clone.Ambient = ambient;
 			return clone;
 		}
 
