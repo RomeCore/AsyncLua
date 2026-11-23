@@ -6,7 +6,7 @@ namespace AsyncLua.Values
 	/// Represents an immutable Lua value. This is the abstract base class for all Lua types.
 	/// All derived types must be thread-safe (immutable) to support concurrent execution scenarios.
 	/// </summary>
-	public abstract class LuaValue : IDisposable, IEquatable<LuaValue>
+	public abstract class LuaValue : IEquatable<LuaValue>
 	{
 		/// <summary>
 		/// Gets the type identifier for this Lua value.
@@ -122,25 +122,6 @@ namespace AsyncLua.Values
 			if (TryToString(out string result))
 				return result;
 			return null;
-		}
-
-		~LuaValue()
-		{
-			Dispose(false);
-		}
-
-		public void Dispose()
-		{
-			Dispose(true);
-		}
-
-		private bool disposed = false;
-		protected virtual void Dispose(bool disposing)
-		{
-			if (disposed) return;
-			disposed = true;
-
-			// TODO: Add __gc metamethod handling here
 		}
 	}
 }
