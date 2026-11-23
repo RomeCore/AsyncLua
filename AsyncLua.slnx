@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="benchmarks/AsyncLua.Benchmarks/AsyncLua.Benchmarks.csproj" />
+  <Project Path="benchmarks/AsyncLua.WorkloadMeasureProbe/AsyncLua.WorkloadMeasureProbe.csproj" Id="8650193f-4d6b-4c44-8cfc-0e88a1ed2f40" />
   <Project Path="src/AsyncLua/AsyncLua.csproj" />
   <Project Path="tests/AsyncLua.Tests/AsyncLua.Tests.csproj" />
 </Solution>
