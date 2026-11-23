@@ -112,6 +112,7 @@ namespace AsyncLua
 		///   <item><description><c>StringLibrary</c> — string manipulation functions</description></item>
 		///   <item><description><c>TableLibrary</c> — table manipulation functions</description></item>
 		///   <item><description><c>CoroutineLibrary</c> — coroutine functions (coroutine.create, coroutine.resume, coroutine.yield)</description></item>
+		///   <item><description><c>OsTimeLibrary</c> — time functions (os.time, os.date, os.clock, os.difftime)</description></item>
 		/// </list>
 		/// </summary>
 		/// <returns>This Lua state instance, for fluent chaining.</returns>
@@ -122,6 +123,7 @@ namespace AsyncLua
 			new StringLibrary().Import(this);
 			new TableLibrary().Import(this);
 			new CoroutineLibrary().Import(this);
+			new OsTimeLibrary().Import(this);
 			new TaskLibrary().Import(this);
 
 			return this;
