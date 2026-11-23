@@ -1,7 +1,6 @@
+using AsyncLua.Values;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
-using AsyncLua;
-using AsyncLua.Values;
 
 namespace AsyncLua.Benchmarks;
 
