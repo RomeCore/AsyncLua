@@ -19,6 +19,16 @@ namespace AsyncLua.Interpreting
 		public const int DefaultMaxStackSize = 1024;
 
 		/// <summary>
+		/// How many instructions run between cancellation checks.
+		/// </summary>
+		/// <remarks>
+		/// Polling the token on every instruction calls <c>ThrowIfCancellationRequested</c> from the
+		/// dispatch loop, and its throw path keeps it from being inlined. Amortizing the check keeps
+		/// cancellation latency within one instruction batch.
+		/// </remarks>
+		private const int CancellationCheckInterval = 64;
+
+		/// <summary>
 		/// Executes the specified function prototype and returns all results as a <see cref="LuaTuple"/>.
 		/// </summary>
 		/// <param name="function">The function prototype to execute.</param>
@@ -73,6 +83,7 @@ namespace AsyncLua.Interpreting
 			var metatableMode = context.Settings.MetatableMode;
 			var callStack = new Stack<CallStackFrame>();
 			int pc = 0;
+			int cancellationCheckCountdown = CancellationCheckInterval;
 			var lockedObjects = new Stack<object>();
 			var tryHandlers = new Stack<TryHandlerInfo>();
 
@@ -124,7 +135,11 @@ namespace AsyncLua.Interpreting
 				{
 					try
 					{
-						context.CancellationToken.ThrowIfCancellationRequested();
+						if (--cancellationCheckCountdown <= 0)
+						{
+							cancellationCheckCountdown = CancellationCheckInterval;
+							context.CancellationToken.ThrowIfCancellationRequested();
+						}
 
 						var inst = instructions[pc];
 
